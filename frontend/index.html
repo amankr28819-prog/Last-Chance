@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StudyPilot — Your Personal Exam Planning System</title>
+  <meta name="description" content="A personal, adaptive, intelligent semester examination planner that guarantees full syllabus coverage and protected revision buffers." />
+  
+  <!-- Vendored Local-First Assets (100% Offline Ready) -->
+  <script src="/static/vendor/tailwind.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: ['class', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          colors: {
+            primary: 'var(--bg-primary)',
+            secondary: 'var(--bg-secondary)',
+            surface: 'var(--bg-surface)',
+            'surface-elevated': 'var(--bg-surface-elevated)',
+            subtle: 'var(--border-subtle)',
+            muted: 'var(--text-muted)'
+          }
+        }
+      }
+    }
+  </script>
+  
+  <link rel="stylesheet" href="/static/css/app.css" />
+  <script src="/static/vendor/react.min.js"></script>
+  <script src="/static/vendor/react-dom.min.js"></script>
+  <script src="/static/vendor/babel.min.js"></script>
+  <script src="/static/vendor/chart.min.js"></script>
+  <script src="/static/vendor/lucide.min.js"></script>
+</head>
+<body className="bg-primary text-primary min-h-screen">
+  <div id="root"></div>
+
+  <!-- API and Application Scripts -->
+  <script src="/static/js/api.js"></script>
+  <script type="text/babel" src="/static/js/app.js"></script>
+</body>
+</html>

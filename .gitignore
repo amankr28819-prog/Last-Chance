@@ -1,0 +1,40 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Test caches and scratch environments
+.pytest_cache/
+pytest-cache-files-*/
+backend/tests/scratch/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Local database files (Preserve user study progress locally)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.sqlite
+data/*.sqlite3
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads and temporary files (keep .gitkeep)
+uploads/*
+!uploads/.gitkeep
+
+# Environment variables & credentials
+.env
+.env.*
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
