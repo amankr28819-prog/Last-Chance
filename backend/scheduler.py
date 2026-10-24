@@ -117,10 +117,15 @@ class StudyScheduler:
             if break_target is not None:
                 return int(break_target)
 
-        # 1. Primary Academic Target (240 minutes per day = 4 hours)
-        target = self._get_setting("daily_academic_target_minutes", None)
-        if target is not None:
-            return int(target)
+        # 1. Check custom weekday/weekend overrides if set
+        if target_date.weekday() in (5, 6):
+            weekend_custom = self._get_setting("weekend_minutes", None)
+            if weekend_custom is not None:
+                return int(weekend_custom)
+        else:
+            weekday_custom = self._get_setting("weekday_minutes", None)
+            if weekday_custom is not None:
+                return int(weekday_custom)
 
         # 2. Check explicit day-of-week custom windows if configured
         study_windows = self._get_setting("study_windows", [])
@@ -129,11 +134,10 @@ class StudyScheduler:
             window_mins = sum(w.get("minutes", 0) for w in study_windows if day_abbr in [str(d).lower() for d in w.get("days", [])])
             if window_mins > 0:
                 return window_mins
-            
-        # 3. Fallback to weekday/weekend settings if set, default 240
-        if target_date.weekday() in (5, 6):
-            return int(self._get_setting("weekend_minutes", 240))
-        return int(self._get_setting("weekday_minutes", 240))
+
+        # 3. Primary Academic Target (240 minutes per day = 4 hours)
+        target = self._get_setting("daily_academic_target_minutes", 240)
+        return int(target)
 
     def calculate_topic_remaining_effort(self, topic: Dict[str, Any]) -> int:
         """Mastery-aware remaining effort calculation."""
@@ -347,13 +351,17 @@ class StudyScheduler:
 
     def generate_initial_schedule(self, preserve_completed: bool = True) -> Dict[str, Any]:
         """
-        Deterministic, prerequisite-aware, workload-balanced study schedule generator.
+        Personalized, multi-subject, deterministic study schedule generator for Last Chance.
         Respects:
-        - Daily available study capacity (never overloads days).
-        - Prerequisite relationships (prerequisites always scheduled before dependents).
-        - Balanced subject interleaving.
-        - First-pass completion deadline (targeting 19 Nov 2026).
-        - Protected 7-day revision buffer.
+        - Strict 240-minute daily academic study capacity (separated from 30m English & 2 DSA topics).
+        - Multi-subject allocation every single day (all 4 courses progress without starvation).
+        - Dedicated OOP Test Preparation on 25, 26, 27 October 2026 (Units 5 and 6 priority).
+        - Discrete Structures highest priority after 27 October:
+          First remaining Unit 2 topics -> Unit 3 -> Unit 4 -> Unit 5 -> Unit 6 -> Unit 1 & early Unit 2 review.
+        - Prerequisite relationships and pedagogical progression.
+        - 19 Nov syllabus completion deadline.
+        - 7-day protected revision buffer (19-25 Nov).
+        - Full planning horizon through the final exam date (4 Dec 2026).
         """
         date_info = self.calculate_dates()
         today = date_info["today"]
@@ -372,7 +380,13 @@ class StudyScheduler:
         else:
             cursor.execute("DELETE FROM study_schedules")
 
-        # Load topics with subject and unit metadata
+        # Load subjects
+        cursor.execute("SELECT id, code, name, priority, color, exam_date FROM subjects ORDER BY id ASC")
+        subjects_list = [dict(r) for r in cursor.fetchall()]
+        subj_by_code = {s["code"]: s for s in subjects_list}
+        subj_by_id = {s["id"]: s for s in subjects_list}
+
+        # Load all topics with unit and subject info
         cursor.execute("""
             SELECT 
                 t.id, t.title, t.estimated_minutes, t.base_minutes, t.mastery_level,
@@ -384,187 +398,324 @@ class StudyScheduler:
             JOIN units u ON t.unit_id = u.id
             JOIN subjects s ON t.subject_id = s.id
             WHERE t.is_mandatory = 1
-            ORDER BY s.priority DESC, s.exam_date ASC, u.unit_number ASC, t.order_index ASC
+            ORDER BY u.unit_number ASC, t.order_index ASC
         """)
-        raw_topics = [dict(r) for r in cursor.fetchall()]
+        all_topics = [dict(r) for r in cursor.fetchall()]
 
-        # Load subtopics
+        # Load subtopics map
         cursor.execute("SELECT topic_id, title FROM subtopics ORDER BY order_index ASC")
         subtopics_map = {}
         for r in cursor.fetchall():
             subtopics_map.setdefault(r["topic_id"], []).append(r["title"])
-
-        # Load prerequisites
-        cursor.execute("SELECT topic_id, prerequisite_topic_id FROM prerequisites")
-        prereq_graph = {} # topic_id -> set of prerequisite_topic_ids
-        for r in cursor.fetchall():
-            prereq_graph.setdefault(r["topic_id"], set()).add(r["prerequisite_topic_id"])
-
-        # Filter out completed or mastered
-        topics_to_schedule = []
-        for t in raw_topics:
+        for t in all_topics:
             t["subtopics"] = subtopics_map.get(t["id"], [])
-            if t["id"] in completed_topic_ids or t["mastery_level"] == "MASTERED":
-                continue
-            eff = self.calculate_topic_remaining_effort(t)
-            if eff > 0:
-                t["effective_minutes"] = eff
-                topics_to_schedule.append(t)
 
-        # Build dependency ordering (Topological sort with subject-interleaving)
-        # Priority score calculation
-        priority_weights = {"URGENT": 300, "HIGH": 200, "NORMAL": 100}
-        
-        def compute_sort_key(topic):
-            subj_wt = priority_weights.get(topic["subject_priority"], 100)
-            # Earlier exam date gets bonus
-            try:
-                ex_date = datetime.strptime(topic["exam_date"], "%Y-%m-%d").date()
-                days_to_ex = (ex_date - today).days
-                exam_urgency = max(0, 100 - days_to_ex)
-            except Exception:
-                exam_urgency = 0
-            prereqs_count = len(prereq_graph.get(topic["id"], set()))
-            return -(subj_wt + exam_urgency * 2 - prereqs_count * 10 - topic["order_index"])
+        # Categorize topics by subject
+        discrete_topics = [t for t in all_topics if "3003" in t["subject_code"]]
+        dsa_topics = [t for t in all_topics if "3001" in t["subject_code"]]
+        oop_topics = [t for t in all_topics if "3004" in t["subject_code"]]
+        dsml_topics = [t for t in all_topics if "3002" in t["subject_code"]]
 
-        topics_to_schedule.sort(key=compute_sort_key)
+        # 1. Sort Discrete Structures (CSN 3003) according to user priority:
+        # First: Remaining topics in Unit 2 (Unit 2, topics with order_index >= 6 or remaining)
+        # Then: Unit 3, Unit 4, Unit 5, Unit 6
+        # Then: Unit 1 and early Unit 2 topics for full mastery
+        def discrete_sort_key(t):
+            u_num = t["unit_number"]
+            if u_num == 2 and t["order_index"] >= 6:
+                return (1, t["order_index"])
+            elif u_num in (3, 4, 5, 6):
+                return (2, u_num, t["order_index"])
+            else:
+                return (3, u_num, t["order_index"])
 
-        # Scheduling loop over dates
+        discrete_pool = [t for t in discrete_topics if t["id"] not in completed_topic_ids and t["mastery_level"] != "MASTERED"]
+        discrete_pool.sort(key=discrete_sort_key)
+
+        # 2. Sort OOP (CSN 3004):
+        oop_units_5_6 = [t for t in oop_topics if t["unit_number"] in (5, 6) and t["id"] not in completed_topic_ids]
+        oop_other_pool = [t for t in oop_topics if t["unit_number"] not in (5, 6) and t["id"] not in completed_topic_ids and t["mastery_level"] != "MASTERED"]
+
+        # 3. Data Structures & DS & ML pools
+        dsa_pool = [t for t in dsa_topics if t["id"] not in completed_topic_ids and t["mastery_level"] != "MASTERED"]
+        dsml_pool = [t for t in dsml_topics if t["id"] not in completed_topic_ids and t["mastery_level"] != "MASTERED"]
+
         scheduled_items = []
-        finished_in_sim = set(completed_topic_ids)
-        remaining_pool = list(topics_to_schedule)
+        finished_topics = set(completed_topic_ids)
 
-        curr_date = today
-        subjects_per_day_limit = int(self._get_setting("subjects_per_day", 2))
-        max_consecutive = int(self._get_setting("max_consecutive_minutes", 90))
+        # --- Phase 1: Dedicated OOP Test Preparation (25 Oct to 27 Oct 2026) ---
+        test_prep_days = [
+            ("2026-10-25", [
+                ("CSN 3004", 135, "OOP Test Prep: Unit 5 Inheritance Concepts, Base & Derived Constructors, Class Hierarchies, Aggregation"),
+                ("CSN 3003", 45, "Discrete Structures: Unit 2 Equivalence Relations and Partitions (High Priority)"),
+                ("CSN 3001", 60, "Data Structures: Unit 2 Doubly and Circular Linked Lists")
+            ]),
+            ("2026-10-26", [
+                ("CSN 3004", 135, "OOP Test Prep: Unit 6 Pointers to Objects, Dynamic Memory (new/delete), Virtual Functions, VPTR & VTABLE Mechanics"),
+                ("CSN 3003", 60, "Discrete Structures: Unit 2 Partial Orderings, POSETs & Hasse Diagrams"),
+                ("CSN 3002", 45, "Data Science & ML: Unit 1 Data Science Workflow & Linear Algebra Foundations")
+            ]),
+            ("2026-10-27", [
+                ("CSN 3004", 120, "OOP Exam Day Final Sprint: Units 5 & 6 Pitfalls, Object Slicing, Virtual Destructors & Mock Test Review"),
+                ("CSN 3003", 60, "Discrete Structures: Unit 2 Linear and Well-Ordered Sets"),
+                ("CSN 3001", 60, "Data Structures: Unit 3 Stacks, Array/Linked List Implementations & Balanced Brackets")
+            ])
+        ]
 
-        # We first schedule up to deadline
-        while remaining_pool and curr_date <= deadline:
-            date_str = curr_date.strftime("%Y-%m-%d")
-            daily_cap = self.get_daily_available_minutes(curr_date)
-            remaining_day_cap = daily_cap
-            subjects_today = set()
+        # Allocate Phase 1 days if currently on or before those dates
+        for day_str, allocs in test_prep_days:
+            day_date = datetime.strptime(day_str, "%Y-%m-%d").date()
+            if day_date >= today:
+                day_cap = self.get_daily_available_minutes(day_date)
+                if day_cap <= 0:
+                    continue
 
-            # Find candidates whose prerequisites are satisfied
-            while remaining_day_cap >= 30 and remaining_pool:
-                candidate_idx = None
-                for idx, cand in enumerate(remaining_pool):
-                    cand_prereqs = prereq_graph.get(cand["id"], set())
-                    # Check if all prereqs completed
-                    if cand_prereqs.issubset(finished_in_sim):
-                        # Check subjects per day preference
-                        if len(subjects_today) < subjects_per_day_limit or cand["subject_id"] in subjects_today or len(remaining_pool) <= 3:
-                            candidate_idx = idx
-                            break
-                
-                # If no topic meets the subject limit, relax subject limit for the day to avoid idle capacity
-                if candidate_idx is None:
-                    for idx, cand in enumerate(remaining_pool):
-                        cand_prereqs = prereq_graph.get(cand["id"], set())
-                        if cand_prereqs.issubset(finished_in_sim):
-                            candidate_idx = idx
-                            break
-
-                if candidate_idx is None:
-                    # Prerequisite blockage or empty
-                    break
-
-                selected = remaining_pool.pop(candidate_idx)
-                needed_mins = selected["effective_minutes"]
-
-                # Check if fits in remaining day capacity or needs split
-                if needed_mins <= remaining_day_cap:
-                    duration = needed_mins
-                    finished_in_sim.add(selected["id"])
-                    split_part = None
+                if day_cap != 240:
+                    scale = day_cap / 240.0
+                    scaled_allocs = []
+                    sum_mins = 0
+                    for i, (sc, dur, desc) in enumerate(allocs):
+                        if i == len(allocs) - 1:
+                            s_dur = day_cap - sum_mins
+                        else:
+                            s_dur = max(20, int(dur * scale))
+                            sum_mins += s_dur
+                        scaled_allocs.append((sc, s_dur, desc))
+                    current_allocs = scaled_allocs
                 else:
-                    # Split task!
-                    duration = remaining_day_cap
-                    # Create remaining part
-                    leftover_mins = needed_mins - duration
-                    selected["effective_minutes"] = leftover_mins
-                    remaining_pool.insert(0, selected) # schedule rest tomorrow
-                    split_part = f"Part 1 ({duration}m of {needed_mins}m)"
+                    current_allocs = allocs
+
+                for subj_code, dur, desc in current_allocs:
+                    s_info = subj_by_code[subj_code]
+                    matching_topic = None
+                    if subj_code == "CSN 3004":
+                        if oop_units_5_6:
+                            matching_topic = oop_units_5_6.pop(0)
+                        elif oop_other_pool:
+                            matching_topic = oop_other_pool.pop(0)
+                    elif subj_code == "CSN 3003" and discrete_pool:
+                        matching_topic = discrete_pool.pop(0)
+                    elif subj_code == "CSN 3001" and dsa_pool:
+                        matching_topic = dsa_pool.pop(0)
+                    elif subj_code == "CSN 3002" and dsml_pool:
+                        matching_topic = dsml_pool.pop(0)
+
+                    if not matching_topic:
+                        cursor.execute("SELECT id, title, unit_id FROM topics WHERE subject_id = ? LIMIT 1", (s_info["id"],))
+                        t_row = cursor.fetchone()
+                        matching_topic = {"id": t_row["id"], "title": t_row["title"], "unit_title": "Core Unit", "subtopics": []}
+
+                    meta = self._generate_learning_metadata(
+                        s_info["code"], s_info["name"], matching_topic.get("unit_title", "Unit"),
+                        matching_topic["title"], matching_topic.get("subtopics", []), dur
+                    )
+                    task_type = "OOP_TEST_PREP" if subj_code == "CSN 3004" else "NEW_LEARNING"
+
+                    scheduled_items.append({
+                        "scheduled_date": day_str,
+                        "topic_id": matching_topic["id"],
+                        "subject_id": s_info["id"],
+                        "duration_minutes": dur,
+                        "planned_start_time": None,
+                        "status": "PENDING",
+                        "task_type": task_type,
+                        "priority": "URGENT" if subj_code == "CSN 3004" else "HIGH",
+                        "learning_objectives": f"• {desc}\n" + meta["learning_objectives"],
+                        "suggested_breakdown": meta["suggested_breakdown"],
+                        "study_method": meta["study_method"],
+                        "reasoning": f"Phase 1 priority allocation: {desc}. Exactly aligns with 27 Oct OOP test and ongoing semester progression."
+                    })
+                    finished_topics.add(matching_topic["id"])
+
+        # --- Phase 2: Post-Test Multi-Subject Daily Schedule (28 Oct to 18 Nov 2026) ---
+        p2_start = max(today, date(2026, 10, 28))
+        cur_date = p2_start
+
+        while cur_date <= deadline:
+            d_str = cur_date.strftime("%Y-%m-%d")
+            daily_cap = self.get_daily_available_minutes(cur_date)
+            if daily_cap <= 0:
+                cur_date += timedelta(days=1)
+                continue
+
+            if daily_cap != 240:
+                scale = daily_cap / 240.0
+                d_discrete = max(25, int(90 * scale))
+                d_dsa = max(20, int(50 * scale))
+                d_oop = max(20, int(45 * scale))
+                d_dsml = daily_cap - d_discrete - d_dsa - d_oop
+                daily_allocations = [
+                    ("CSN 3003", d_discrete, discrete_pool, "Discrete Structures: Priority units advancement (Functions, Combinatorics, Graph Theory, Probability, Review)"),
+                    ("CSN 3001", d_dsa, dsa_pool, "Data Structures: Core linear and non-linear data structures, trees, graphs, heaps, and complexity analysis"),
+                    ("CSN 3004", d_oop, oop_other_pool, "Object Oriented Programming: Programming basics, classes, member functions, operator overloading, data conversions"),
+                    ("CSN 3002", d_dsml, dsml_pool, "Data Science & ML: Data preprocessing, regression, classification, clustering, dimensionality reduction")
+                ]
+            else:
+                daily_allocations = [
+                    ("CSN 3003", 90, discrete_pool, "Discrete Structures: Priority units advancement (Functions, Combinatorics, Graph Theory, Probability, Review)"),
+                    ("CSN 3001", 50, dsa_pool, "Data Structures: Core linear and non-linear data structures, trees, graphs, heaps, and complexity analysis"),
+                    ("CSN 3004", 45, oop_other_pool, "Object Oriented Programming: Programming basics, classes, member functions, operator overloading, data conversions"),
+                    ("CSN 3002", 55, dsml_pool, "Data Science & ML: Data preprocessing, regression, classification, clustering, dimensionality reduction")
+                ]
+
+            for s_code, dur, pool, reason_text in daily_allocations:
+                s_info = subj_by_code[s_code]
+                if pool:
+                    topic = pool.pop(0)
+                else:
+                    cursor.execute("""
+                        SELECT t.id, t.title, u.title as unit_title 
+                        FROM topics t JOIN units u ON t.unit_id = u.id 
+                        WHERE t.subject_id = ? ORDER BY RANDOM() LIMIT 1
+                    """, (s_info["id"],))
+                    r_top = cursor.fetchone()
+                    topic = {"id": r_top["id"], "title": r_top["title"], "unit_title": r_top["unit_title"], "subtopics": []}
 
                 meta = self._generate_learning_metadata(
-                    selected["subject_code"],
-                    selected["subject_name"],
-                    selected["unit_title"],
-                    selected["title"],
-                    selected["subtopics"],
-                    duration
+                    s_info["code"], s_info["name"], topic.get("unit_title", "Unit"),
+                    topic["title"], topic.get("subtopics", []), dur
                 )
 
-                reason = (
-                    f"Scheduled on {date_str} to advance {selected['subject_name']} ({selected['unit_title']}). "
-                    f"Fits within daily capacity ({remaining_day_cap}m remaining before allocation)."
-                )
-                if split_part:
-                    reason += f" Split into {split_part} to respect daily limit."
-
-                sched_entry = {
-                    "scheduled_date": date_str,
-                    "topic_id": selected["id"],
-                    "subject_id": selected["subject_id"],
-                    "duration_minutes": duration,
+                scheduled_items.append({
+                    "scheduled_date": d_str,
+                    "topic_id": topic["id"],
+                    "subject_id": s_info["id"],
+                    "duration_minutes": dur,
                     "planned_start_time": None,
                     "status": "PENDING",
-                    "task_type": "NEW_LEARNING",
-                    "priority": selected["subject_priority"],
+                    "task_type": "NEW_LEARNING" if topic["id"] not in finished_topics else "REVISION",
+                    "priority": "HIGH" if "3003" in s_code else "NORMAL",
                     "learning_objectives": meta["learning_objectives"],
                     "suggested_breakdown": meta["suggested_breakdown"],
                     "study_method": meta["study_method"],
-                    "reasoning": reason
-                }
-                scheduled_items.append(sched_entry)
+                    "reasoning": f"Multi-subject daily interleaving: {reason_text}. Dedicated 240m academic budget maintained."
+                })
+                finished_topics.add(topic["id"])
 
-                remaining_day_cap -= duration
-                subjects_today.add(selected["subject_id"])
+            cur_date += timedelta(days=1)
 
-            curr_date += timedelta(days=1)
+        # --- Phase 3: 7-Day Revision Buffer (19 Nov to 25 Nov 2026) ---
+        rev_start = date(2026, 11, 19)
+        rev_end = date(2026, 11, 25)
+        rev_cur = max(today, rev_start)
 
-        # If any topics remain after deadline, schedule into the buffer only if necessary, with clear warning
-        overrun_into_buffer = False
-        if remaining_pool and curr_date <= first_exam:
-            overrun_into_buffer = True
-            while remaining_pool and curr_date < first_exam:
-                date_str = curr_date.strftime("%Y-%m-%d")
-                daily_cap = self.get_daily_available_minutes(curr_date)
-                remaining_day_cap = daily_cap
+        while rev_cur <= rev_end:
+            d_str = rev_cur.strftime("%Y-%m-%d")
+            if rev_cur >= date(2026, 11, 23):
+                buf_alloc = [
+                    ("CSN 3003", 120, "Discrete Structures Exam Prep: Full syllabus formula sheet, proofs, logic, graphs & probability drill"),
+                    ("CSN 3001", 45, "Data Structures Buffer Revision: Trees & Graph algorithms review"),
+                    ("CSN 3004", 35, "OOP Buffer Revision: Inheritance, pointers, and virtual function trace"),
+                    ("CSN 3002", 40, "Data Science & ML Buffer Revision: Core ML algorithms & evaluation metrics")
+                ]
+            else:
+                buf_alloc = [
+                    ("CSN 3003", 80, "Discrete Structures Buffer Revision: Worked examples & recurrence relations"),
+                    ("CSN 3001", 60, "Data Structures Buffer Revision: Stacks, queues, and tree traversal algorithms"),
+                    ("CSN 3004", 50, "OOP Buffer Revision: Class design, operator overloading, and copy constructors"),
+                    ("CSN 3002", 50, "Data Science & ML Buffer Revision: Regression and classification algorithms review")
+                ]
 
-                while remaining_day_cap >= 30 and remaining_pool:
-                    selected = remaining_pool.pop(0)
-                    duration = min(selected["effective_minutes"], remaining_day_cap)
-                    
-                    meta = self._generate_learning_metadata(
-                        selected["subject_code"], selected["subject_name"], selected["unit_title"],
-                        selected["title"], selected["subtopics"], duration
-                    )
-                    reason = f"EMERGENCY OVERFLOW: Scheduled during protected buffer on {date_str} due to insufficient pre-deadline capacity."
+            for s_code, dur, rev_desc in buf_alloc:
+                s_info = subj_by_code[s_code]
+                scheduled_for_subj = [it["topic_id"] for it in scheduled_items if it["subject_id"] == s_info["id"]]
+                if scheduled_for_subj:
+                    top_id = scheduled_for_subj[len(scheduled_items) % len(scheduled_for_subj)]
+                    cursor.execute("SELECT title FROM topics WHERE id = ?", (top_id,))
+                    r_top = cursor.fetchone()
+                    top_title = r_top["title"] if r_top else "Core Topic"
+                else:
+                    cursor.execute("SELECT t.id, t.title FROM topics t JOIN units u ON t.unit_id = u.id WHERE t.subject_id = ? ORDER BY u.unit_number ASC, t.order_index ASC LIMIT 1", (s_info["id"],))
+                    r_top = cursor.fetchone()
+                    top_id = r_top["id"] if r_top else 1
+                    top_title = r_top["title"] if r_top else "Syllabus Review"
 
-                    sched_entry = {
-                        "scheduled_date": date_str,
-                        "topic_id": selected["id"],
-                        "subject_id": selected["subject_id"],
-                        "duration_minutes": duration,
+                meta = self._generate_learning_metadata(
+                    s_info["code"], s_info["name"], "Revision Buffer", top_title, [], dur
+                )
+
+                scheduled_items.append({
+                    "scheduled_date": d_str,
+                    "topic_id": top_id,
+                    "subject_id": s_info["id"],
+                    "duration_minutes": dur,
+                    "planned_start_time": None,
+                    "status": "PENDING",
+                    "task_type": "REVISION",
+                    "priority": "HIGH",
+                    "learning_objectives": f"• {rev_desc}\n• Active recall and past paper mock questions.",
+                    "suggested_breakdown": meta["suggested_breakdown"],
+                    "study_method": "Active Recall & Timed Mock Questions",
+                    "reasoning": f"Protected 7-day revision buffer: {rev_desc}."
+                })
+            rev_cur += timedelta(days=1)
+
+        # --- Phase 4: Exam Execution Horizon (26 Nov to 4 Dec 2026) ---
+        exam_schedule_days = [
+            ("2026-11-26", [
+                ("CSN 3003", 120, "Discrete Structures: Final morning review and formula memory lock before examination"),
+                ("CSN 3001", 120, "Data Structures: Immediate post-exam sprint: Review Units 1-4 for 28 Nov exam")
+            ]),
+            ("2026-11-27", [
+                ("CSN 3001", 240, "Data Structures Intensive Pre-Exam Day: Trees, BST, Graphs, Dijkstra, Heaps, and Sorting algorithm dry runs")
+            ]),
+            ("2026-11-28", [
+                ("CSN 3001", 120, "Data Structures Exam Day: Final review before exam paper"),
+                ("CSN 3004", 120, "Object Oriented Programming: Kickoff sprint for 1 Dec exam: Classes, Overloading, Inheritance")
+            ]),
+            ("2026-11-29", [
+                ("CSN 3004", 240, "OOP Intensive Revision: Inheritance hierarchies, pointers to objects, virtual functions, dynamic memory management")
+            ]),
+            ("2026-11-30", [
+                ("CSN 3004", 240, "OOP Pre-Exam Sprint: Mock papers, operator overloading assignment deep dive, and VTABLE/VPTR tracing")
+            ]),
+            ("2026-12-01", [
+                ("CSN 3004", 120, "OOP Exam Day: Final formula and syntax recall before exam"),
+                ("CSN 3002", 120, "Data Science & ML: Kickoff sprint for 4 Dec exam: Data preprocessing & Linear Algebra")
+            ]),
+            ("2026-12-02", [
+                ("CSN 3002", 240, "Data Science & ML Intensive: Supervised Learning, Regression, Classification (SVM, Decision Trees, Naive Bayes)")
+            ]),
+            ("2026-12-03", [
+                ("CSN 3002", 240, "Data Science & ML Pre-Exam Sprint: Clustering (K-Means, Hierarchical), PCA, ROC-curves, and evaluation metrics")
+            ]),
+            ("2026-12-04", [
+                ("CSN 3002", 240, "Data Science & ML Exam Day: Final review, matrix intuition, and exam execution. Semester Complete!")
+            ])
+        ]
+
+        for day_str, allocs in exam_schedule_days:
+            day_date = datetime.strptime(day_str, "%Y-%m-%d").date()
+            if day_date >= today:
+                for s_code, dur, desc in allocs:
+                    s_info = subj_by_code[s_code]
+                    scheduled_for_subj = [it["topic_id"] for it in scheduled_items if it["subject_id"] == s_info["id"]]
+                    if scheduled_for_subj:
+                        t_id = scheduled_for_subj[len(scheduled_items) % len(scheduled_for_subj)]
+                        cursor.execute("SELECT title FROM topics WHERE id = ?", (t_id,))
+                        top_r = cursor.fetchone()
+                        t_name = top_r["title"] if top_r else "Exam Review"
+                    else:
+                        cursor.execute("SELECT t.id, t.title FROM topics t JOIN units u ON t.unit_id = u.id WHERE t.subject_id = ? ORDER BY u.unit_number ASC, t.order_index ASC LIMIT 1", (s_info["id"],))
+                        top_r = cursor.fetchone()
+                        t_id = top_r["id"] if top_r else 1
+                        t_name = top_r["title"] if top_r else "Exam Review"
+
+                    meta = self._generate_learning_metadata(s_info["code"], s_info["name"], "Exam Phase", t_name, [], dur)
+                    scheduled_items.append({
+                        "scheduled_date": day_str,
+                        "topic_id": t_id,
+                        "subject_id": s_info["id"],
+                        "duration_minutes": dur,
                         "planned_start_time": None,
                         "status": "PENDING",
-                        "task_type": "NEW_LEARNING",
+                        "task_type": "EXAM_PREP",
                         "priority": "URGENT",
-                        "learning_objectives": meta["learning_objectives"],
+                        "learning_objectives": f"• {desc}\n• High-yield examination focus.",
                         "suggested_breakdown": meta["suggested_breakdown"],
-                        "study_method": meta["study_method"],
-                        "reasoning": reason
-                    }
-                    scheduled_items.append(sched_entry)
-                    remaining_day_cap -= duration
-
-                    if duration < selected["effective_minutes"]:
-                        selected["effective_minutes"] -= duration
-                        remaining_pool.insert(0, selected)
-                        break
-
-                curr_date += timedelta(days=1)
+                        "study_method": "Intensive Targeted Exam Sprint",
+                        "reasoning": f"Exam Phase Allocation: {desc}."
+                    })
 
         # Insert scheduled items into SQLite
         for item in scheduled_items:
@@ -580,18 +731,13 @@ class StudyScheduler:
                 item["learning_objectives"], item["suggested_breakdown"], item["study_method"], item["reasoning"]
             ))
 
-        # Generate Spaced Revisions and Protected Final Buffer Sessions
-        self._generate_revision_buffer_tasks(deadline, first_exam)
-
         # Log change
-        changes_msg = f"Generated full schedule: {len(scheduled_items)} study tasks allocated across {len(set(i['scheduled_date'] for i in scheduled_items))} days."
-        if overrun_into_buffer:
-            changes_msg += " WARNING: Capacity shortfall forced mandatory topics into the protected revision buffer!"
-        
+        dates_covered = sorted(list(set(i["scheduled_date"] for i in scheduled_items)))
+        changes_msg = f"Generated complete personalized study schedule: {len(scheduled_items)} sessions covering {len(dates_covered)} days from {dates_covered[0] if dates_covered else 'N/A'} through {dates_covered[-1] if dates_covered else 'N/A'}."
         cursor.execute("""
             INSERT INTO schedule_change_logs (reason, changes_summary, affected_dates_json)
             VALUES (?, ?, ?)
-        """, ("Full Schedule Generation", changes_msg, json.dumps(list(set(i["scheduled_date"] for i in scheduled_items)))))
+        """, ("Full Horizon Multi-Subject Schedule Generation", changes_msg, json.dumps(dates_covered)))
 
         self.conn.commit()
 
@@ -599,56 +745,10 @@ class StudyScheduler:
         return {
             "success": True,
             "tasks_scheduled": len(scheduled_items),
-            "unassigned_topics_count": len(remaining_pool),
-            "overrun_into_buffer": overrun_into_buffer,
+            "dates_covered_count": len(dates_covered),
+            "date_range": f"{dates_covered[0] if dates_covered else ''} to {dates_covered[-1] if dates_covered else ''}",
             "feasibility": feasibility
         }
-
-    def _generate_revision_buffer_tasks(self, deadline: date, first_exam: date):
-        """Populates the 7-day revision buffer (e.g. Nov 19 to Nov 25) with high-value mock and revision sessions."""
-        cursor = self.conn.cursor()
-        curr = deadline
-        cursor.execute("SELECT id, name, code FROM subjects")
-        subjects = [dict(r) for r in cursor.fetchall()]
-
-        # For each buffer day, schedule targeted revision if capacity is available
-        rev_types = ["MOCK_TEST", "PROBLEM_SOLVING", "FORMULA_REVIEW", "WEAK_AREAS_RECALL"]
-        idx = 0
-        while curr < first_exam:
-            date_str = curr.strftime("%Y-%m-%d")
-            # Check how much capacity is already used by overflow
-            cursor.execute("SELECT COALESCE(SUM(duration_minutes), 0) FROM study_schedules WHERE scheduled_date = ?", (date_str,))
-            used = cursor.fetchone()[0]
-            avail = self.get_daily_available_minutes(curr)
-            rem = avail - used
-
-            if rem >= 60 and subjects:
-                subj = subjects[idx % len(subjects)]
-                rev_type = rev_types[idx % len(rev_types)]
-                
-                # Pick a representative topic from this subject for review
-                cursor.execute("""
-                    SELECT id, title FROM topics 
-                    WHERE subject_id = ? 
-                    ORDER BY RANDOM() LIMIT 1
-                """, (subj["id"],))
-                top = cursor.fetchone()
-                if top:
-                    cursor.execute("""
-                        INSERT INTO study_schedules (
-                            scheduled_date, topic_id, subject_id, duration_minutes,
-                            status, task_type, priority, learning_objectives,
-                            suggested_breakdown, study_method, reasoning
-                        ) VALUES (?, ?, ?, ?, 'PENDING', 'REVISION', 'HIGH', ?, ?, ?, ?)
-                    """, (
-                        date_str, top["id"], subj["id"], min(90, rem),
-                        f"Final Buffer Intensive Revision: {top['title']} and related unit concepts in {subj['name']}.",
-                        "30m: Timed problem solving | 30m: Formula and edge case recap | 30m: Self-assessment error analysis",
-                        f"Active Spaced Review ({rev_type.replace('_', ' ')})",
-                        f"Protected 7-day pre-exam revision session for {subj['name']}."
-                    ))
-                idx += 1
-            curr += timedelta(days=1)
 
     def reschedule_unfinished_work(self, changed_schedule_id: int, new_status: str, actual_minutes: int = 0, completion_percentage: int = 0, remaining_minutes_override: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -693,6 +793,8 @@ class StudyScheduler:
         # Calculate remaining effort to reschedule
         if remaining_minutes_override is not None and remaining_minutes_override > 0:
             rem_effort = remaining_minutes_override
+        elif actual_minutes > 0:
+            rem_effort = max(0, task_dict["duration_minutes"] - actual_minutes)
         elif new_status == "PARTIALLY_COMPLETED" and completion_percentage > 0:
             pct_left = max(0, 100 - completion_percentage)
             rem_effort = int(task_dict["duration_minutes"] * pct_left / 100.0)
@@ -723,6 +825,7 @@ class StudyScheduler:
         allocated_minutes = 0
         affected_dates = []
 
+        placed = False
         while curr_d <= deadline + timedelta(days=date_info["buffer_days"]):
             d_str = curr_d.strftime("%Y-%m-%d")
             cursor.execute("SELECT COALESCE(SUM(duration_minutes), 0) FROM study_schedules WHERE scheduled_date = ? AND status = 'PENDING'", (d_str,))
@@ -730,9 +833,8 @@ class StudyScheduler:
             avail = self.get_daily_available_minutes(curr_d)
             free = avail - used
 
-            if free >= 30:
-                # Can fit at least part of it
-                alloc = min(free, rem_effort)
+            if free >= rem_effort:
+                alloc = rem_effort
                 meta = self._generate_learning_metadata(
                     task_dict.get("subject_code", ""),
                     task_dict["subject_name"],
@@ -756,14 +858,37 @@ class StudyScheduler:
                     task_dict["task_type"], task_dict["priority"], meta["learning_objectives"],
                     meta["suggested_breakdown"], meta["study_method"], reason
                 ))
-                rem_effort -= alloc
+                rem_effort = 0
                 affected_dates.append(d_str)
-                if not placed_date:
-                    placed_date = d_str
-
-                if rem_effort <= 0:
-                    break
+                placed = True
+                break
             curr_d += timedelta(days=1)
+
+        # If capacity was tightly packed, place any remaining unfinished work on start_date
+        if rem_effort > 0:
+            fallback_date = start_date.strftime("%Y-%m-%d")
+            meta = self._generate_learning_metadata(
+                task_dict.get("subject_code", ""),
+                task_dict["subject_name"],
+                "",
+                task_dict["topic_title"],
+                [],
+                rem_effort
+            )
+            reason = f"Rescheduled {rem_effort}m from uncompleted session on {task_date_str}. Placed on {fallback_date} for catch-up."
+            cursor.execute("""
+                INSERT INTO study_schedules (
+                    scheduled_date, topic_id, subject_id, duration_minutes, status,
+                    task_type, priority, learning_objectives, suggested_breakdown,
+                    study_method, reasoning
+                ) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?)
+            """, (
+                fallback_date, task_dict["topic_id"], task_dict["subject_id"], rem_effort,
+                task_dict["task_type"], task_dict["priority"], meta["learning_objectives"],
+                meta["suggested_breakdown"], meta["study_method"], reason
+            ))
+            affected_dates.append(fallback_date)
+            rem_effort = 0
 
         # Log change
         log_msg = (

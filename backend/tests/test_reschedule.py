@@ -39,6 +39,7 @@ def test_missed_task_adaptive_rescheduling(test_db):
         SELECT scheduled_date, duration_minutes, reasoning 
         FROM study_schedules 
         WHERE topic_id = ? AND status = 'PENDING' AND id != ?
+        ORDER BY id DESC
     """, (task["topic_id"], task_id))
     new_tasks = cursor.fetchall()
     assert len(new_tasks) > 0
@@ -71,6 +72,7 @@ def test_partial_completion_carries_only_remaining_portion(test_db):
     cursor.execute("""
         SELECT duration_minutes FROM study_schedules 
         WHERE topic_id = ? AND status = 'PENDING' AND id != ?
+        ORDER BY id DESC
     """, (task["topic_id"], task_id))
     rescheduled = cursor.fetchone()
     assert rescheduled is not None

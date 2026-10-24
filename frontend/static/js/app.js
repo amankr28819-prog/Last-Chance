@@ -140,16 +140,44 @@ function App() {
     { id: 'settings', label: 'Settings', icon: '⚙️' }
   ];
 
+  const APPRECIATION_MESSAGES = [
+    "Great work! One step closer to your goal.",
+    "Well done. Your consistency is building.",
+    "Excellent progress. Keep moving forward.",
+    "Your effort today matters.",
+    "One more task completed. Keep going!",
+    "Your parents will be proud of the effort you're putting in.",
+    "Stay consistent and trust the process.",
+    "Discipline today creates freedom tomorrow.",
+    "Every minute of honest practice adds up. Keep shining!",
+    "With patience and perseverance, success is inevitable."
+  ];
+
+  const showAppreciation = (customMsg) => {
+    const msg = customMsg || APPRECIATION_MESSAGES[Math.floor(Math.random() * APPRECIATION_MESSAGES.length)];
+    setToast({ message: msg, type: 'appreciation' });
+    setTimeout(() => setToast(null), 4500);
+  };
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row" style={{ backgroundColor: 'var(--bg-page)', color: 'var(--text-primary)' }}>
       {/* Toast Notification */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg border text-sm flex items-center space-x-3 transition-smooth ${
+        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-xl shadow-2xl border flex items-center space-x-3 transition-smooth ${
+          toast.type === 'appreciation' ? 'appreciation-toast' :
           toast.type === 'error' ? 'badge-error' :
           toast.type === 'success' ? 'badge-success' : 'badge-info'
-        }`}>
-          <span>{toast.type === 'error' ? '⚠️' : toast.type === 'success' ? '✓' : 'ℹ️'}</span>
-          <span className="font-semibold">{toast.message}</span>
+        }`} style={{
+          backgroundColor: toast.type === 'appreciation' ? 'var(--bg-card-elevated)' : undefined,
+          borderColor: toast.type === 'appreciation' ? '#6366f1' : undefined
+        }}>
+          <span className="text-xl">{toast.type === 'appreciation' ? '🌟' : toast.type === 'error' ? '⚠️' : toast.type === 'success' ? '✓' : 'ℹ️'}</span>
+          <div>
+            {toast.type === 'appreciation' && (
+              <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Consistency Milestone</div>
+            )}
+            <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{toast.message}</span>
+          </div>
         </div>
       )}
 
@@ -159,9 +187,7 @@ function App() {
         <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
           <div>
             <div className="flex items-center space-x-2.5">
-              <span className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-extrabold text-lg shadow-sm">
-                LC
-              </span>
+              <img src="/static/assets/logo.svg" alt="Last Chance" className="w-8 h-8 rounded-lg shadow-sm" />
               <h1 className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
                 Last Chance
               </h1>
@@ -253,6 +279,14 @@ function App() {
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* Live Time Left Today Countdown */}
+            {timeData?.time_left_today && (
+              <div className="px-3 py-1.5 rounded-lg border flex items-center space-x-2 text-xs font-mono font-bold shadow-sm" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}>
+                <span className="text-amber-400 animate-pulse">⏳</span>
+                <span>{timeData.time_left_today.formatted} left today</span>
+              </div>
+            )}
+
             {/* Quick Metrics */}
             <div className="hidden lg:flex items-center space-x-3 text-xs">
               <div className="px-2.5 py-1 rounded-md border font-medium flex items-center space-x-1.5" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
@@ -296,6 +330,7 @@ function App() {
             <DashboardView
               todaySchedule={todaySchedule}
               dates={dates}
+              timeData={timeData}
               feasibility={feasibility}
               todayQuote={todayQuote}
               dailyDSA={dailyDSA}
@@ -307,6 +342,7 @@ function App() {
               onNavigate={(tab) => setActiveTab(tab)}
               onRefresh={refreshAll}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -319,6 +355,7 @@ function App() {
               }}
               onRefresh={refreshAll}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -327,6 +364,7 @@ function App() {
               subjects={subjects}
               onRefresh={refreshAll}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -335,6 +373,7 @@ function App() {
               dailyDSA={dailyDSA}
               onRefresh={refreshAll}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -343,6 +382,7 @@ function App() {
               englishToday={englishToday}
               onRefresh={refreshAll}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -351,6 +391,7 @@ function App() {
               dates={dates}
               onRefresh={refreshAll}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -362,6 +403,7 @@ function App() {
                 setIsFocusModalOpen(true);
               }}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -370,6 +412,7 @@ function App() {
               feasibility={feasibility}
               onRefresh={refreshAll}
               showToast={showToast}
+              showAppreciation={showAppreciation}
             />
           )}
 
@@ -412,9 +455,7 @@ function App() {
   );
 }
 
-// ----------------- 1. DASHBOARD VIEW -----------------
-
-function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA, englishToday, onStartSession, onNavigate, onRefresh, showToast }) {
+function DashboardView({ todaySchedule, dates, timeData, feasibility, todayQuote, dailyDSA, englishToday, onStartSession, onNavigate, onRefresh, showToast, showAppreciation }) {
   const [extraRecs, setExtraRecs] = useState([]);
   const [quoteFav, setQuoteFav] = useState(todayQuote?.is_favorite || false);
   const [rescheduleModalTask, setRescheduleModalTask] = useState(null);
@@ -423,9 +464,37 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
   const [confidence, setConfidence] = useState(4);
   const [notes, setNotes] = useState('');
 
+  // Wasted Time & Shortfall tracking state
+  const [wastedSummary, setWastedSummary] = useState(null);
+  const [isLogWastedModalOpen, setIsLogWastedModalOpen] = useState(false);
+  const [wastedLogMins, setWastedLogMins] = useState(30);
+  const [wastedCategory, setWastedCategory] = useState('Avoidable Distraction');
+  const [wastedNotes, setWastedNotes] = useState('');
+
+  // 2 DSA Syllabus Topics state
+  const [dsaTopics, setDsaTopics] = useState([]);
+  const [dsaTimeSpent, setDsaTimeSpent] = useState({});
+
+  // English Simple Practice state
+  const [practisedEnglish, setPractisedEnglish] = useState(englishToday?.log?.is_completed ? 'yes' : null);
+  const [actualEnglishMinutes, setActualEnglishMinutes] = useState(
+    englishToday?.log?.actual_minutes !== undefined ? englishToday.log.actual_minutes : (englishToday?.log?.time_spent_seconds ? Math.floor(englishToday.log.time_spent_seconds / 60) : 30)
+  );
+  const [savingEnglish, setSavingEnglish] = useState(false);
+
   useEffect(() => {
     window.LastChanceAPI.getExtraTime().then(res => {
       setExtraRecs(res.recommendations || []);
+    }).catch(() => {});
+
+    // Load wasted time summary
+    window.LastChanceAPI.getWastedTimeSummary().then(res => {
+      setWastedSummary(res);
+    }).catch(() => {});
+
+    // Load daily 2 DSA syllabus topics
+    window.LastChanceAPI.getDSATopics().then(res => {
+      setDsaTopics(res.topics || []);
     }).catch(() => {});
   }, []);
 
@@ -433,10 +502,10 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
   const academicTarget = todaySchedule?.academic_target_minutes || 240;
   const academicPct = Math.min(100, Math.round((academicDone / academicTarget) * 100));
 
-  const dsaSolved = dailyDSA?.solved_count || 0;
+  const dsaSolved = dsaTopics.filter(t => t.status === 'Completed').length || dailyDSA?.solved_count || 0;
   const englishCompleted = englishToday?.log?.is_completed || false;
-  const englishSeconds = englishToday?.log?.time_spent_seconds || 0;
-  const englishMins = Math.floor(englishSeconds / 60);
+  const englishMins = actualEnglishMinutes || Math.floor((englishToday?.log?.time_spent_seconds || 0) / 60);
+  const englishShortfall = Math.max(0, 30 - englishMins);
 
   const tasks = todaySchedule?.tasks || [];
 
@@ -461,20 +530,118 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
         notes: 'Quick completed from dashboard'
       });
       await onRefresh();
-      showToast('Task marked 100% completed!', 'success');
+      if (showAppreciation) {
+        showAppreciation("Outstanding effort! Academic task completed and schedule preserved.");
+      } else {
+        showToast('Task marked 100% completed!', 'success');
+      }
     } catch (e) {
       showToast('Failed to update task: ' + e.message, 'error');
     }
   };
 
+  const handleLogWastedTime = async () => {
+    if (wastedLogMins <= 0) {
+      showToast('Please enter a valid duration', 'error');
+      return;
+    }
+    try {
+      await window.LastChanceAPI.logWastedTime({
+        wasted_date: dates?.today_str || new Date().toISOString().split('T')[0],
+        minutes: wastedLogMins,
+        category: wastedCategory,
+        notes: wastedNotes
+      });
+      setIsLogWastedModalOpen(false);
+      setWastedNotes('');
+      const res = await window.LastChanceAPI.getWastedTimeSummary();
+      setWastedSummary(res);
+      showToast('Unproductive time logged for transparency.');
+    } catch (e) {
+      showToast('Failed to log wasted time: ' + e.message, 'error');
+    }
+  };
+
+  const handleCompleteDSATopic = async (assignmentId, currentStatus) => {
+    try {
+      const newStatus = currentStatus === 'Completed' ? 'Pending' : 'Completed';
+      const timeSpent = dsaTimeSpent[assignmentId] || 25;
+      await window.LastChanceAPI.updateDSATopic(assignmentId, {
+        status: newStatus,
+        time_spent_minutes: timeSpent
+      });
+      const res = await window.LastChanceAPI.getDSATopics();
+      setDsaTopics(res.topics || []);
+      if (newStatus === 'Completed' && showAppreciation) {
+        showAppreciation("Great consistency! DSA topic commitment completed.");
+      } else {
+        showToast('DSA topic status updated.');
+      }
+      onRefresh();
+    } catch (e) {
+      showToast('Failed to update DSA topic: ' + e.message, 'error');
+    }
+  };
+
+  const handleSaveEnglishPractice = async () => {
+    setSavingEnglish(true);
+    try {
+      await window.LastChanceAPI.saveEnglishSimple(
+        dates?.today_str || new Date().toISOString().split('T')[0],
+        actualEnglishMinutes,
+        'Logged from dashboard'
+      );
+      await onRefresh();
+      const wRes = await window.LastChanceAPI.getWastedTimeSummary();
+      setWastedSummary(wRes);
+      if (showAppreciation) {
+        showAppreciation("Consistency is key! English speaking practice logged.");
+      } else {
+        showToast('English speaking practice saved!', 'success');
+      }
+    } catch (e) {
+      showToast('Failed to save English practice: ' + e.message, 'error');
+    } finally {
+      setSavingEnglish(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Live Time Left Today Breakdown Card */}
+      {timeData?.time_left_today && (
+        <div className="lc-card p-4.5 border-l-4 border-amber-500 flex flex-col md:flex-row items-start md:items-center justify-between gap-4" style={{ backgroundColor: 'var(--bg-card)' }}>
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <span className="text-xl">⏳</span>
+              <h3 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                Time Left Today: <span className="font-mono text-amber-500">{timeData.time_left_today.formatted}</span>
+              </h3>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Countdown to midnight IST ({timeData.formatted_time}) • Academic target, DSA, and English tracked separately.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="px-3 py-1.5 rounded-lg border font-mono" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+              <span className="text-slate-400">📖 Academic:</span> <strong className="text-indigo-400">{academicDone}m</strong> / {academicTarget}m
+            </div>
+            <div className="px-3 py-1.5 rounded-lg border font-mono" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+              <span className="text-slate-400">🗣️ English:</span> <strong className="text-amber-400">{englishMins}m</strong> / 30m
+            </div>
+            <div className="px-3 py-1.5 rounded-lg border font-mono" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+              <span className="text-slate-400">💻 DSA:</span> <strong className="text-emerald-400">{dsaSolved}/2</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 4 Core Daily Targets Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Metric 1: Academic Study (240m target) */}
         <div className="lc-card p-4 space-y-2">
           <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
-            <span>📖 Academic Target</span>
+            <span>📖 Academic Study</span>
             <span className="text-indigo-400 font-bold">{academicPct}%</span>
           </div>
           <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
@@ -484,7 +651,7 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
             <div className="bg-indigo-500 h-2 rounded-full transition-smooth" style={{ width: `${academicPct}%` }}></div>
           </div>
           <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            Reserved for semester coursework (4 courses).
+            Strict 240m target for 4 university semester courses.
           </p>
         </div>
 
@@ -497,13 +664,13 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
             </span>
           </div>
           <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
-            {dsaSolved} <span className="text-xs font-medium text-slate-400">/ 2 questions</span>
+            {dsaSolved} <span className="text-xs font-medium text-slate-400">/ 2 topics</span>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
             <div className="bg-emerald-500 h-2 rounded-full transition-smooth" style={{ width: `${(dsaSolved / 2) * 100}%` }}></div>
           </div>
           <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            Tracked separately outside 240m target.
+            Syllabus topic practice outside the 240m target.
           </p>
         </div>
 
@@ -511,8 +678,8 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
         <div className="lc-card p-4 space-y-2 cursor-pointer hover:border-amber-500/50" onClick={() => onNavigate('english')}>
           <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
             <span>🗣️ English Speaking</span>
-            <span className={englishCompleted ? 'badge-success badge' : 'badge-warning badge'}>
-              {englishCompleted ? 'Done' : 'Incomplete'}
+            <span className={englishMins >= 30 ? 'badge-success badge' : 'badge-warning badge'}>
+              {englishMins >= 30 ? 'Done' : 'Shortfall'}
             </span>
           </div>
           <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
@@ -522,26 +689,161 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
             <div className="bg-amber-500 h-2 rounded-full transition-smooth" style={{ width: `${Math.min(100, (englishMins / 30) * 100)}%` }}></div>
           </div>
           <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            Daily fluency & interview drill.
+            {englishShortfall > 0 ? `Shortfall: ${englishShortfall}m unmet` : 'Daily 30m target fully met!'}
           </p>
         </div>
 
-        {/* Metric 4: College Commitments */}
+        {/* Metric 4: Wasted & Shortfall Accounting */}
         <div className="lc-card p-4 space-y-2">
           <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
-            <span>🏫 College Classes</span>
-            <span className="badge badge-info font-bold">
-              {todaySchedule?.college_hours > 0 ? 'Working Day' : 'Holiday'}
+            <span>⏱️ Unproductive / Shortfall</span>
+            <button
+              onClick={() => setIsLogWastedModalOpen(true)}
+              className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20"
+            >
+              + Log Time
+            </button>
+          </div>
+          <div className="text-2xl font-black text-rose-400">
+            {wastedSummary?.today?.total_unproductive_minutes || 0} <span className="text-xs font-medium text-slate-400">mins today</span>
+          </div>
+          <div className="text-[11px] text-slate-400 space-y-0.5">
+            <div>Confirmed: {wastedSummary?.today?.confirmed_wasted_minutes || 0}m • English: {wastedSummary?.today?.english_shortfall_minutes || 0}m</div>
+            <div>Week Total: <strong className="text-rose-400 font-bold">{wastedSummary?.week?.total_unproductive_minutes || 0} mins</strong></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Compulsory Commitments Row: Today's 2 DSA Syllabus Topics & English Simple Check */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Card A: 2 DSA Syllabus Topics */}
+        <div className="lc-card p-4.5 space-y-3 border-emerald-500/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="text-base">💻</span>
+              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                Today's Compulsory DSA Topics (Syllabus Rotation)
+              </h3>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              Topic Names Only
             </span>
           </div>
-          <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
-            {todaySchedule?.college_hours || 0} <span className="text-xs font-medium text-slate-400">hours</span>
-          </div>
-          <p className="text-[11px] pt-2" style={{ color: 'var(--text-muted)' }}>
-            {todaySchedule?.college_hours > 0
-              ? 'Classes scheduled. Academic study starts afterwards.'
-              : 'No college classes today. Full study window available.'}
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            Compulsory daily algorithm practice from CSN 3001 Data Structures curriculum:
           </p>
+
+          <div className="space-y-2.5">
+            {dsaTopics.length === 0 ? (
+              <p className="text-xs text-slate-400 py-3 text-center">Loading today's syllabus topics...</p>
+            ) : (
+              dsaTopics.map((topic, idx) => {
+                const isDone = topic.status === 'Completed';
+                return (
+                  <div key={topic.id} className="p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] font-bold text-emerald-400">Topic #{idx + 1}</div>
+                      <div className="font-bold text-sm text-slate-200">{topic.topic_name}</div>
+                    </div>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <span className="text-[11px] text-slate-400">⏱️ {topic.time_spent_minutes || 25}m</span>
+                      <button
+                        onClick={() => handleCompleteDSATopic(topic.id, topic.status)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-smooth ${
+                          isDone
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-sm'
+                        }`}
+                      >
+                        {isDone ? '✓ Completed' : 'Mark Done'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Card B: English Speaking Simple Tracking */}
+        <div className="lc-card p-4.5 space-y-3 border-amber-500/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="text-base">🗣️</span>
+              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                English Speaking Practice (Daily 30m)
+              </h3>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
+              🔥 {englishToday?.streak_days || 0}d streak
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-lg border space-y-3" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+            <div className="text-xs font-semibold text-slate-200">
+              Did you practise English speaking today?
+            </div>
+
+            <div className="flex items-center space-x-3 text-xs">
+              <label className="flex items-center space-x-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="practised"
+                  checked={practisedEnglish === 'yes'}
+                  onChange={() => setPractisedEnglish('yes')}
+                  className="accent-indigo-600"
+                />
+                <span className="font-bold text-emerald-400">Yes, I practised</span>
+              </label>
+              <label className="flex items-center space-x-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="practised"
+                  checked={practisedEnglish === 'no'}
+                  onChange={() => {
+                    setPractisedEnglish('no');
+                    setActualEnglishMinutes(0);
+                  }}
+                  className="accent-indigo-600"
+                />
+                <span className="font-bold text-rose-400">No, missed today</span>
+              </label>
+            </div>
+
+            {practisedEnglish === 'yes' && (
+              <div className="space-y-2 pt-1 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                <div className="flex items-center justify-between text-xs">
+                  <label className="font-medium text-slate-300">Actual practice duration:</label>
+                  <div className="flex items-center space-x-1">
+                    <input
+                      type="number"
+                      min="1"
+                      max="120"
+                      value={actualEnglishMinutes}
+                      onChange={e => setActualEnglishMinutes(Math.max(0, Number(e.target.value)))}
+                      className="w-16 px-2 py-1 text-xs rounded border text-center font-mono font-bold"
+                    />
+                    <span className="text-slate-400">minutes</span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-400 flex justify-between">
+                  <span>Target: 30 minutes</span>
+                  <span className={englishShortfall > 0 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
+                    {englishShortfall > 0 ? `Shortfall: ${englishShortfall} mins (counted in wasted time)` : 'Target achieved! Shortfall: 0m'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveEnglishPractice}
+              disabled={savingEnglish || practisedEnglish === null}
+              className="w-full py-2 rounded-lg text-xs font-bold btn-primary disabled:opacity-50"
+            >
+              {savingEnglish ? 'Saving...' : 'Save English Practice Record'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -766,6 +1068,62 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
         </div>
       </div>
 
+      {/* Log Unproductive / Wasted Time Modal */}
+      {isLogWastedModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsLogWastedModalOpen(false)}>
+          <div className="modal-dialog p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+              <h3 className="text-base font-bold text-slate-100">Log Unproductive / Wasted Time</h3>
+              <button onClick={() => setIsLogWastedModalOpen(false)} className="text-slate-400 text-lg">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Duration Wasted (minutes):</label>
+                <input
+                  type="number"
+                  min="5"
+                  max="480"
+                  value={wastedLogMins}
+                  onChange={e => setWastedLogMins(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Category:</label>
+                <select value={wastedCategory} onChange={e => setWastedCategory(e.target.value)} className="w-full">
+                  <option value="Avoidable Distraction">Avoidable Distraction</option>
+                  <option value="Social Media Scrolling">Social Media Scrolling</option>
+                  <option value="Daydreaming / Inattention">Daydreaming / Inattention</option>
+                  <option value="Phone Call / Messaging">Phone Call / Messaging</option>
+                  <option value="Unplanned Break">Unplanned Long Break</option>
+                  <option value="Other Unproductive Time">Other Unproductive Time</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Notes / Reflection (Optional):</label>
+                <textarea
+                  rows="2"
+                  value={wastedNotes}
+                  onChange={e => setWastedNotes(e.target.value)}
+                  placeholder="What triggered this distraction? How to avoid tomorrow?"
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <button onClick={() => setIsLogWastedModalOpen(false)} className="btn-secondary text-xs">Cancel</button>
+              <button onClick={handleLogWastedTime} className="btn-primary text-xs font-bold">
+                Save Wasted Time Entry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Task Reschedule / Completion Modal */}
       {rescheduleModalTask && (
         <div className="modal-overlay" onClick={() => setRescheduleModalTask(null)}>
@@ -807,7 +1165,7 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
               <div>
                 <label className="block text-slate-300 font-medium mb-1">Confidence Rating (1 to 5):</label>
                 <select value={confidence} onChange={e => setConfidence(Number(e.target.value))} className="w-full">
-                  <option value="1">1 - Stが現 Struggled / Confused</option>
+                  <option value="1">1 - Struggled / Confused</option>
                   <option value="2">2 - Partially Understood</option>
                   <option value="3">3 - Moderate Comprehension</option>
                   <option value="4">4 - Confident</option>
@@ -841,7 +1199,11 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
                     });
                     setRescheduleModalTask(null);
                     await onRefresh();
-                    showToast('Task progress saved and future schedule updated!', 'success');
+                    if (completePct >= 100 && showAppreciation) {
+                      showAppreciation();
+                    } else {
+                      showToast('Task progress saved and future schedule updated!', 'success');
+                    }
                   } catch (e) {
                     showToast('Failed to save progress: ' + e.message, 'error');
                   }
@@ -862,8 +1224,9 @@ function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA
 
 function StudyCalendarView({ dates, onStartSession, onRefresh, showToast }) {
   const [events, setEvents] = useState([]);
+  const [horizonDays, setHorizonDays] = useState([]);
   const [selectedDate, setSelectedDate] = useState(dates?.today_str || new Date().toISOString().split('T')[0]);
-  const [viewMode, setViewMode] = useState('month'); // 'month', 'week', 'day'
+  const [viewMode, setViewMode] = useState('month'); // 'month', 'week', 'day', 'horizon'
   const [currentMonth, setCurrentMonth] = useState(() => {
     const d = new Date(selectedDate || '2026-10-25');
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -879,6 +1242,8 @@ function StudyCalendarView({ dates, onStartSession, onRefresh, showToast }) {
     try {
       const data = await window.LastChanceAPI.getCalendarEvents();
       setEvents(data.events || []);
+      const hData = await window.LastChanceAPI.getFullSchedule();
+      setHorizonDays(hData.schedule || []);
     } catch (err) {
       showToast('Failed to load calendar events: ' + err.message, 'error');
     }
@@ -1019,6 +1384,12 @@ function StudyCalendarView({ dates, onStartSession, onRefresh, showToast }) {
               className={`px-3 py-1.5 text-xs font-semibold ${viewMode === 'day' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
             >
               Day
+            </button>
+            <button
+              onClick={() => setViewMode('horizon')}
+              className={`px-3 py-1.5 text-xs font-semibold ${viewMode === 'horizon' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              Full Plan (Exams Horizon)
             </button>
           </div>
 
@@ -1175,6 +1546,112 @@ function StudyCalendarView({ dates, onStartSession, onRefresh, showToast }) {
           </div>
         )}
 
+        {/* Full Plan (Exams Horizon) Day-by-Day View */}
+        {viewMode === 'horizon' && (
+          <div className="lg:col-span-2 lc-card p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b gap-2" style={{ borderColor: 'var(--border-color)' }}>
+              <div>
+                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                  <span>Complete Day-by-Day Horizon</span>
+                  <span className="badge badge-accent text-[11px] font-mono">{horizonDays.length} Days Planned Through Exams</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Strict 240m daily academic study target across all 4 subjects, plus 2 DSA topics and 30m English.
+                </p>
+              </div>
+              <div className="text-xs text-right font-mono text-slate-400">
+                Oct 25 – Dec 04, 2026
+              </div>
+            </div>
+
+            <div className="space-y-4 max-h-[680px] overflow-y-auto pr-1">
+              {horizonDays.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <p>Loading complete exam horizon schedule...</p>
+                </div>
+              ) : (
+                horizonDays.map((day, idx) => {
+                  const dStr = day.date;
+                  const isOOPPrep = dStr >= '2026-10-25' && dStr <= '2026-10-27';
+                  const isRevision = dStr >= '2026-11-19' && dStr <= '2026-11-25';
+                  const isExam = dStr >= '2026-11-26';
+                  const isToday = dStr === (dates?.today_str || '2026-10-25');
+                  const isSelected = dStr === selectedDate;
+
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => setSelectedDate(dStr)}
+                      className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                        isSelected ? 'border-indigo-500 bg-indigo-950/20' : 'hover:border-slate-600'
+                      }`}
+                      style={{
+                        backgroundColor: isSelected ? undefined : 'var(--bg-card-elevated)',
+                        borderColor: isSelected ? undefined : 'var(--border-color)'
+                      }}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-700/60">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-slate-100">{dStr}</span>
+                          <span className="text-xs text-slate-400 font-semibold">({day.day_of_week})</span>
+                          {isToday && <span className="badge badge-primary text-[10px]">TODAY</span>}
+                          {isOOPPrep && <span className="badge badge-warning text-[10px]">OOP Test Prep (Units 5 & 6)</span>}
+                          {isRevision && <span className="badge badge-accent text-[10px]">7-Day Revision Buffer</span>}
+                          {isExam && <span className="badge badge-danger text-[10px]">Exam Period</span>}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <span className="font-semibold text-emerald-400 font-mono">Academic: {day.total_academic_minutes} / 240m</span>
+                          <span className="text-slate-400 font-mono">|</span>
+                          <span className="text-indigo-300">DSA: 2 Topics</span>
+                          <span className="text-slate-400 font-mono">|</span>
+                          <span className="text-amber-300">English: 30m</span>
+                        </div>
+                      </div>
+
+                      {/* Multi-subject scheduled sessions */}
+                      <div className="space-y-1.5">
+                        {day.sessions.map((sess, sIdx) => {
+                          const isOOP = sess.course_code === 'CSN 3004';
+                          const isDiscrete = sess.course_code === 'CSN 3003';
+                          const isDS = sess.course_code === 'CSN 3001';
+                          const isDSML = sess.course_code === 'CSN 3002';
+
+                          return (
+                            <div
+                              key={sIdx}
+                              className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-900/40 border border-slate-800"
+                            >
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <span
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold shrink-0 text-white"
+                                  style={{
+                                    backgroundColor: isOOP ? '#ef4444' :
+                                                     isDiscrete ? '#8b5cf6' :
+                                                     isDS ? '#06b6d4' :
+                                                     isDSML ? '#10b981' : '#64748b'
+                                  }}
+                                >
+                                  {sess.course_code}
+                                </span>
+                                <span className="font-semibold text-slate-300 truncate" title={sess.topic_title || sess.title}>
+                                  {sess.topic_title || sess.title}
+                                </span>
+                              </div>
+                              <span className="font-mono text-slate-300 shrink-0 ml-3">
+                                {sess.duration_minutes}m
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Selected Date Inspector Panel */}
         <div className="lc-card p-5 space-y-4">
           <div className="border-b pb-3 flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
@@ -1304,61 +1781,90 @@ function StudyCalendarView({ dates, onStartSession, onRefresh, showToast }) {
   );
 }
 
-// ----------------- 3. COURSES & UNITS VIEW -----------------
+// ----------------- 3. COURSES & UNITS VIEW (COMPLETE INTERACTIVE CHECKLISTS) -----------------
 
-function CoursesUnitsView({ subjects, onRefresh, showToast }) {
+function CoursesUnitsView({ subjects, onRefresh, showToast, showAppreciation }) {
+  const [coursesData, setCoursesData] = useState([]);
   const [activeCourseId, setActiveCourseId] = useState(subjects[0]?.id || null);
-  const [syllabusData, setSyllabusData] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [loadingCourses, setLoadingCourses] = useState(true);
+
+  const loadCoursesTree = async () => {
+    try {
+      const res = await window.LastChanceAPI.getCourses();
+      setCoursesData(res.courses || []);
+      if (!activeCourseId && res.courses?.length > 0) {
+        setActiveCourseId(res.courses[0].id);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
 
   useEffect(() => {
-    if (activeCourseId) {
-      window.LastChanceAPI.getSyllabus(activeCourseId).then(res => {
-        setSyllabusData(res.units || []);
-      }).catch(e => console.error(e));
-    }
-  }, [activeCourseId]);
+    loadCoursesTree();
+  }, []);
 
-  const activeCourse = subjects.find(s => s.id === activeCourseId);
+  const activeCourse = coursesData.find(c => c.id === activeCourseId) || subjects.find(s => s.id === activeCourseId);
 
-  const handleUpdateTopicMastery = async (topicId, newMastery) => {
+  const handleUpdateTopicStatus = async (topicId, newStatus) => {
     try {
-      await window.LastChanceAPI.updateTopic(topicId, { mastery_level: newMastery });
-      // Refresh local syllabus
-      const res = await window.LastChanceAPI.getSyllabus(activeCourseId);
-      setSyllabusData(res.units || []);
-      showToast('Topic mastery status updated!');
+      await window.LastChanceAPI.updateTopicStatus(topicId, newStatus);
+      await loadCoursesTree();
+      if ((newStatus === 'COMPLETED' || newStatus === 'MASTERED') && showAppreciation) {
+        showAppreciation("Topic completed! Progress updated across unit and course.");
+      } else {
+        showToast(`Topic updated to ${newStatus.replace('_', ' ')}!`);
+      }
+      onRefresh();
     } catch (e) {
-      showToast('Failed to update topic: ' + e.message, 'error');
+      showToast('Failed to update topic status: ' + e.message, 'error');
     }
+  };
+
+  const handleToggleCheckbox = (topic) => {
+    const isCompleted = topic.mastery_level === 'COMPLETED' || topic.mastery_level === 'MASTERED';
+    const newStatus = isCompleted ? 'NOT_STARTED' : 'COMPLETED';
+    handleUpdateTopicStatus(topic.id, newStatus);
   };
 
   return (
     <div className="space-y-6">
-      {/* 4 Course Tabs */}
+      {/* 4 Course Tabs with Completion Indicators */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {subjects.map(subj => {
+        {(coursesData.length > 0 ? coursesData : subjects).map(subj => {
           const isSelected = subj.id === activeCourseId;
+          const pct = subj.progress_percent !== undefined ? subj.progress_percent : 0;
           return (
             <div
               key={subj.id}
               onClick={() => setActiveCourseId(subj.id)}
               className={`lc-card p-4 cursor-pointer transition-smooth border-l-4 ${
-                isSelected ? 'shadow-md' : 'opacity-85 hover:opacity-100'
+                isSelected ? 'shadow-md border-indigo-500' : 'opacity-85 hover:opacity-100'
               }`}
               style={{
                 borderLeftColor: subj.color || '#4f46e5',
                 backgroundColor: isSelected ? 'var(--bg-card-elevated)' : 'var(--bg-card)'
               }}
             >
-              <div className="text-[11px] font-bold font-mono" style={{ color: subj.color || '#4f46e5' }}>
-                {subj.code}
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold font-mono" style={{ color: subj.color || '#4f46e5' }}>
+                  {subj.code}
+                </span>
+                <span className="text-[11px] font-bold text-slate-300 font-mono">{pct}%</span>
               </div>
-              <h3 className="text-sm font-bold text-slate-100 truncate mt-0.5">{subj.name}</h3>
-              <div className="text-xs text-slate-400 mt-2 flex justify-between">
-                <span>{subj.credits} Credits • {subj.total_lectures} Lect</span>
-                <span>Exam: {subj.exam_date || 'TBD'}</span>
+              <h3 className="text-sm font-bold text-slate-100 truncate mt-1">{subj.name}</h3>
+
+              <div className="w-full bg-slate-800 rounded-full h-1.5 mt-2.5 overflow-hidden">
+                <div className="h-1.5 rounded-full transition-smooth" style={{ width: `${pct}%`, backgroundColor: subj.color || '#4f46e5' }}></div>
+              </div>
+
+              <div className="text-[11px] text-slate-400 mt-2 flex justify-between">
+                <span>{subj.completed_topics_count || 0}/{subj.total_topics_count || subj.total_lectures || 0} topics</span>
+                <span>Exam: {subj.exam_date || 'Nov 26'}</span>
               </div>
             </div>
           );
@@ -1369,8 +1875,11 @@ function CoursesUnitsView({ subjects, onRefresh, showToast }) {
       <div className="lc-card p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4" style={{ borderColor: 'var(--border-color)' }}>
           <div>
-            <h3 className="text-base font-bold text-slate-100">{activeCourse?.name} ({activeCourse?.code})</h3>
-            <p className="text-xs text-slate-400">Complete official university unit & topic breakdown</p>
+            <div className="flex items-center space-x-2">
+              <span className="text-base font-bold text-slate-100">{activeCourse?.name} ({activeCourse?.code})</span>
+              <span className="badge badge-info text-xs font-bold">{activeCourse?.progress_percent || 0}% Completed</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Authoritative university unit & topic syllabus checklist</p>
           </div>
           <div className="flex items-center space-x-2">
             <input
@@ -1381,24 +1890,30 @@ function CoursesUnitsView({ subjects, onRefresh, showToast }) {
               className="text-xs"
             />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="text-xs">
-              <option value="ALL">All Status</option>
-              <option value="NOT_STARTED">Not Started</option>
-              <option value="CONFIDENT">Confident</option>
+              <option value="ALL">All Topics</option>
+              <option value="UNFINISHED">Unfinished Only</option>
+              <option value="COMPLETED">Completed Only</option>
               <option value="NEEDS_REVISION">Needs Revision</option>
-              <option value="MASTERED">Mastered</option>
             </select>
           </div>
         </div>
 
         {/* Units Accordion */}
         <div className="space-y-4">
-          {syllabusData.length === 0 ? (
-            <p className="text-xs text-slate-400 py-8 text-center">Loading unit syllabus data...</p>
+          {loadingCourses ? (
+            <p className="text-xs text-slate-400 py-8 text-center">Loading university course units...</p>
           ) : (
-            syllabusData.map(unit => {
+            (activeCourse?.units || []).map(unit => {
               const filteredTopics = (unit.topics || []).filter(t => {
                 const matchSearch = t.title.toLowerCase().includes(searchTerm.toLowerCase());
-                const matchStatus = statusFilter === 'ALL' || t.mastery_level === statusFilter;
+                let matchStatus = true;
+                if (statusFilter === 'UNFINISHED') {
+                  matchStatus = t.mastery_level !== 'COMPLETED' && t.mastery_level !== 'MASTERED';
+                } else if (statusFilter === 'COMPLETED') {
+                  matchStatus = t.mastery_level === 'COMPLETED' || t.mastery_level === 'MASTERED';
+                } else if (statusFilter === 'NEEDS_REVISION') {
+                  matchStatus = t.mastery_level === 'NEEDS_REVISION';
+                }
                 return matchSearch && matchStatus;
               });
 
@@ -1406,46 +1921,72 @@ function CoursesUnitsView({ subjects, onRefresh, showToast }) {
 
               return (
                 <div key={unit.id} className="p-4 rounded-xl border space-y-3" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                  <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-color)' }}>
-                    <div className="font-bold text-sm text-slate-200">
-                      Unit {unit.unit_number}: {unit.title}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2.5" style={{ borderColor: 'var(--border-color)' }}>
+                    <div>
+                      <div className="font-bold text-sm text-slate-200">
+                        Unit {unit.unit_number}: {unit.title}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {unit.completed_topics_count || 0} of {unit.total_topics_count || unit.topics?.length || 0} topics completed ({unit.progress_percent || 0}%)
+                      </div>
                     </div>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {unit.lecture_allocation} Lectures • {filteredTopics.length} Topics
-                    </span>
+                    <div className="w-32 bg-slate-800 rounded-full h-2 overflow-hidden shrink-0">
+                      <div className="bg-emerald-500 h-2 rounded-full transition-smooth" style={{ width: `${unit.progress_percent || 0}%` }}></div>
+                    </div>
                   </div>
 
-                  <div className="space-y-2.5">
-                    {filteredTopics.map(t => (
-                      <div key={t.id} className="p-3 rounded-lg border text-xs space-y-2" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-bold text-slate-100 text-sm">{t.title}</span>
-                          <div className="flex items-center space-x-2">
+                  {/* Topic Checklists */}
+                  <div className="space-y-2">
+                    {filteredTopics.map(t => {
+                      const isDone = t.mastery_level === 'COMPLETED' || t.mastery_level === 'MASTERED';
+                      return (
+                        <div
+                          key={t.id}
+                          className="p-3 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-smooth"
+                          style={{
+                            backgroundColor: 'var(--bg-card)',
+                            borderColor: isDone ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)'
+                          }}
+                        >
+                          <div className="flex items-start space-x-3">
+                            <input
+                              type="checkbox"
+                              checked={isDone}
+                              onChange={() => handleToggleCheckbox(t)}
+                              className="mt-1 w-4 h-4 rounded border-slate-700 accent-emerald-500 cursor-pointer"
+                              title="Toggle Topic Completion"
+                            />
+                            <div>
+                              <div className={`font-bold text-sm ${isDone ? 'text-emerald-300 line-through' : 'text-slate-100'}`}>
+                                {t.title}
+                              </div>
+                              {t.subtopics?.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {t.subtopics.map((st, sIdx) => (
+                                    <span key={sIdx} className="code-pill text-[10px]">{st}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
                             <span className="font-mono text-slate-400 text-[11px]">⏱️ {t.estimated_minutes}m</span>
                             <select
                               value={t.mastery_level}
-                              onChange={e => handleUpdateTopicMastery(t.id, e.target.value)}
-                              className="text-[11px] font-semibold"
+                              onChange={e => handleUpdateTopicStatus(t.id, e.target.value)}
+                              className="text-xs font-semibold px-2 py-1 rounded border"
                             >
-                              <option value="NOT_STARTED">Not Started</option>
-                              <option value="STUDIED_ONCE">Studied Once</option>
-                              <option value="PARTIALLY_UNDERSTOOD">Partially Understood</option>
-                              <option value="NEEDS_REVISION">Needs Revision</option>
-                              <option value="CONFIDENT">Confident</option>
+                              <option value="NOT_STARTED">Not started</option>
+                              <option value="IN_PROGRESS">In progress</option>
+                              <option value="COMPLETED">Completed</option>
+                              <option value="NEEDS_REVISION">Needs revision</option>
                               <option value="MASTERED">Mastered</option>
                             </select>
                           </div>
                         </div>
-
-                        {t.subtopics?.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 pt-1">
-                            {t.subtopics.map((st, sIdx) => (
-                              <span key={sIdx} className="code-pill text-[10px]">{st}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -1457,38 +1998,48 @@ function CoursesUnitsView({ subjects, onRefresh, showToast }) {
   );
 }
 
-// ----------------- 4. DAILY DSA VIEW (2 COMPULSORY QUESTIONS) -----------------
+// ----------------- 4. DAILY DSA VIEW (2 SYLLABUS TOPIC RECOMMENDATIONS ONLY) -----------------
 
-function DailyDSAView({ dailyDSA, onRefresh, showToast }) {
-  const [activeTab, setActiveTab] = useState('today'); // 'today' or 'all'
-  const [allQuestions, setAllQuestions] = useState([]);
-  const [hintsVisible, setHintsVisible] = useState({});
-  const [solutionVisible, setSolutionVisible] = useState({});
-  const [notesState, setNotesState] = useState({});
+function DailyDSAView({ dailyDSA, onRefresh, showToast, showAppreciation }) {
+  const [dsaTopics, setDsaTopics] = useState([]);
   const [timeSpentState, setTimeSpentState] = useState({});
+  const [notesState, setNotesState] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  const loadTopics = async () => {
+    try {
+      const res = await window.LastChanceAPI.getDSATopics();
+      setDsaTopics(res.topics || []);
+    } catch (e) {
+      showToast('Failed to load DSA topics: ' + e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (activeTab === 'all') {
-      window.LastChanceAPI.getAllDSA().then(res => {
-        setAllQuestions(res.questions || []);
-      }).catch(e => console.error(e));
-    }
-  }, [activeTab]);
+    loadTopics();
+  }, []);
 
-  const assignments = dailyDSA?.assignments || [];
-
-  const handleUpdateStatus = async (assignmentId, status) => {
+  const handleUpdateTopic = async (assignmentId, currentStatus) => {
     try {
-      await window.LastChanceAPI.updateDSAAssignment(assignmentId, {
-        status: status,
-        user_approach: notesState[assignmentId]?.approach || '',
-        mistakes_notes: notesState[assignmentId]?.mistakes || '',
-        time_spent_minutes: timeSpentState[assignmentId] || 25
+      const newStatus = currentStatus === 'Completed' ? 'Pending' : 'Completed';
+      const timeSpent = timeSpentState[assignmentId] || 25;
+      const notes = notesState[assignmentId] || '';
+      await window.LastChanceAPI.updateDSATopic(assignmentId, {
+        status: newStatus,
+        time_spent_minutes: timeSpent,
+        notes: notes
       });
+      await loadTopics();
       await onRefresh();
-      showToast(`DSA question marked as ${status}!`, 'success');
+      if (newStatus === 'Completed' && showAppreciation) {
+        showAppreciation("Consistency builds mastery! DSA topic practice logged.");
+      } else {
+        showToast('DSA topic updated.');
+      }
     } catch (e) {
-      showToast('Failed to update DSA status: ' + e.message, 'error');
+      showToast('Failed to update DSA topic: ' + e.message, 'error');
     }
   };
 
@@ -1496,253 +2047,148 @@ function DailyDSAView({ dailyDSA, onRefresh, showToast }) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Daily DSA (Data Structures Practice)</h2>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Daily DSA (Topic Recommendations Only)</h2>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Exactly 2 compulsory practice problems assigned daily from the university Data Structures syllabus.
+            Exactly two Data Structures topics assigned daily from CSN 3001 syllabus. Topic names only, no generated questions.
           </p>
         </div>
-
-        <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border-color)' }}>
-          <button
-            onClick={() => setActiveTab('today')}
-            className={`px-3 py-1.5 text-xs font-semibold ${activeTab === 'today' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
-          >
-            Today's 2 Questions
-          </button>
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`px-3 py-1.5 text-xs font-semibold ${activeTab === 'all' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
-          >
-            Question Bank ({allQuestions.length || '15+'})
-          </button>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full">
+            Target: 2 Topics Daily
+          </span>
         </div>
       </div>
 
-      {activeTab === 'today' ? (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {assignments.length === 0 ? (
-              <div className="col-span-2 lc-card p-8 text-center text-xs text-slate-400">
-                Loading today's assigned DSA questions...
-              </div>
-            ) : (
-              assignments.map((item, idx) => {
-                const q = item;
-                const isSolved = item.status === 'Solved';
-                return (
-                  <div key={item.id} className="lc-card p-5 space-y-4 flex flex-col justify-between">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                          Problem #{idx + 1} • {q.topic}
-                        </span>
-                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${
-                          q.difficulty === 'Easy' ? 'bg-blue-500/10 text-blue-400' :
-                          q.difficulty === 'Medium' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'
-                        }`}>
-                          {q.difficulty}
-                        </span>
-                      </div>
-
-                      <h3 className="text-base font-bold text-slate-100">{q.title}</h3>
-
-                      <div className="p-3 rounded-lg border text-xs text-slate-300 leading-relaxed font-mono" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                        {q.problem_statement}
-                      </div>
-
-                      {q.concept && (
-                        <div className="text-xs text-slate-400">
-                          <strong className="text-slate-200">Core Concept:</strong> {q.concept}
-                        </div>
-                      )}
-
-                      {/* Progressive Hints Accordions */}
-                      <div className="space-y-1.5 pt-1">
-                        {q.hint_1 && (
-                          <div>
-                            <button
-                              onClick={() => setHintsVisible(p => ({ ...p, [`${item.id}_1`]: !p[`${item.id}_1`] }))}
-                              className="text-xs font-semibold text-indigo-400 hover:underline flex items-center space-x-1"
-                            >
-                              <span>{hintsVisible[`${item.id}_1`] ? '▼ Hide Hint 1' : '► Reveal Hint 1'}</span>
-                            </button>
-                            {hintsVisible[`${item.id}_1`] && (
-                              <p className="text-xs text-slate-300 p-2 rounded bg-slate-800/60 mt-1 border border-slate-700">
-                                💡 {q.hint_1}
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {q.hint_2 && (
-                          <div>
-                            <button
-                              onClick={() => setHintsVisible(p => ({ ...p, [`${item.id}_2`]: !p[`${item.id}_2`] }))}
-                              className="text-xs font-semibold text-indigo-400 hover:underline flex items-center space-x-1"
-                            >
-                              <span>{hintsVisible[`${item.id}_2`] ? '▼ Hide Hint 2' : '► Reveal Hint 2'}</span>
-                            </button>
-                            {hintsVisible[`${item.id}_2`] && (
-                              <p className="text-xs text-slate-300 p-2 rounded bg-slate-800/60 mt-1 border border-slate-700">
-                                💡 {q.hint_2}
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Solution & Code Reveal */}
-                        <div>
-                          <button
-                            onClick={() => setSolutionVisible(p => ({ ...p, [item.id]: !p[item.id] }))}
-                            className="text-xs font-bold text-amber-400 hover:underline flex items-center space-x-1 pt-1"
-                          >
-                            <span>{solutionVisible[item.id] ? '▼ Hide Explanation & Code' : '► Reveal Solution & Code'}</span>
-                          </button>
-                          {solutionVisible[item.id] && (
-                            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 mt-2 space-y-2 text-xs">
-                              <div className="text-slate-300 whitespace-pre-line">{q.solution_approach}</div>
-                              {q.solution_code && (
-                                <pre className="p-2.5 rounded bg-black/60 text-[11px] font-mono text-emerald-300 overflow-x-auto border border-slate-800">
-                                  {q.solution_code}
-                                </pre>
-                              )}
-                              <div className="flex justify-between text-[11px] text-slate-400 border-t border-slate-800 pt-1">
-                                <span>Time: {q.time_complexity || 'O(N)'}</span>
-                                <span>Space: {q.space_complexity || 'O(1)'}</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Approach & Mistakes Recording */}
-                      <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                        <textarea
-                          rows="2"
-                          placeholder="Record your logic, approach, and invariants..."
-                          defaultValue={item.user_approach || ''}
-                          onChange={e => setNotesState(p => ({ ...p, [item.id]: { ...(p[item.id] || {}), approach: e.target.value } }))}
-                          className="w-full text-xs"
-                        />
-                        <textarea
-                          rows="1"
-                          placeholder="Mistakes, bugs or edge cases to remember..."
-                          defaultValue={item.mistakes_notes || ''}
-                          onChange={e => setNotesState(p => ({ ...p, [item.id]: { ...(p[item.id] || {}), mistakes: e.target.value } }))}
-                          className="w-full text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Status Toggle Buttons */}
-                    <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                        isSolved ? 'badge-success badge' : 'badge-warning badge'
-                      }`}>
-                        Status: {item.status}
-                      </span>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleUpdateStatus(item.id, 'Attempted')}
-                          className="px-2.5 py-1 text-xs rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold"
-                        >
-                          Attempted
-                        </button>
-                        <button
-                          onClick={() => handleUpdateStatus(item.id, 'Needs Revision')}
-                          className="px-2.5 py-1 text-xs rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 font-semibold"
-                        >
-                          Needs Revision
-                        </button>
-                        <button
-                          onClick={() => handleUpdateStatus(item.id, 'Solved')}
-                          className="px-3 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-500 font-bold shadow"
-                        >
-                          ✓ Solved
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+      {/* 2 Topic Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {loading ? (
+          <div className="col-span-2 lc-card p-8 text-center text-xs text-slate-400">
+            Loading today's syllabus recommendations...
           </div>
-        </div>
-      ) : (
-        <div className="lc-card p-5 space-y-4">
-          <h3 className="text-sm font-bold text-slate-100">All DSA Syllabus Practice Problems</h3>
-          <div className="space-y-3">
-            {allQuestions.map(q => (
-              <div key={q.id} className="p-3.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400">
-                      {q.topic}
+        ) : (
+          dsaTopics.map((item, idx) => {
+            const isDone = item.status === 'Completed';
+            return (
+              <div key={item.id} className="lc-card p-5 space-y-4 flex flex-col justify-between border-t-4 border-emerald-500">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                      Recommendation #{idx + 1}
                     </span>
-                    <span className="text-[10px] font-bold text-slate-400">{q.difficulty}</span>
-                    {q.solve_count > 0 && <span className="badge badge-success text-[10px]">Solved {q.solve_count}x</span>}
+                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded ${
+                      isDone ? 'badge-success badge' : 'badge-warning badge'
+                    }`}>
+                      {item.status}
+                    </span>
                   </div>
-                  <h4 className="text-sm font-bold text-slate-200">{q.title}</h4>
-                  <p className="text-xs text-slate-400 line-clamp-1">{q.problem_statement}</p>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CSN 3001 Syllabus Topic</span>
+                    <h3 className="text-lg font-black text-slate-100 mt-0.5">{item.topic_name}</h3>
+                  </div>
+
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Practice coding or solving academic problems for <strong>{item.topic_name}</strong> on LeetCode, university handouts, or notebook.
+                  </p>
+
+                  <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                    <div className="flex items-center justify-between text-xs">
+                      <label className="text-slate-300 font-medium">Time spent practicing:</label>
+                      <div className="flex items-center space-x-1">
+                        <input
+                          type="number"
+                          min="5"
+                          max="120"
+                          defaultValue={item.time_spent_minutes || 25}
+                          onChange={e => setTimeSpentState(p => ({ ...p, [item.id]: Number(e.target.value) }))}
+                          className="w-16 px-2 py-1 text-xs rounded border text-center font-mono font-bold"
+                        />
+                        <span className="text-slate-400">mins</span>
+                      </div>
+                    </div>
+
+                    <textarea
+                      rows="2"
+                      placeholder="Notes on approach, algorithms, or edge cases handled..."
+                      defaultValue={item.notes || ''}
+                      onChange={e => setNotesState(p => ({ ...p, [item.id]: e.target.value }))}
+                      className="w-full text-xs"
+                    />
+                  </div>
                 </div>
-                <div className="text-xs text-slate-400 font-mono shrink-0">
-                  Time: {q.time_complexity} • Space: {q.space_complexity}
+
+                <div className="pt-3 border-t flex justify-end" style={{ borderColor: 'var(--border-color)' }}>
+                  <button
+                    onClick={() => handleUpdateTopic(item.id, item.status)}
+                    className={`w-full py-2 rounded-lg text-xs font-bold transition-smooth ${
+                      isDone
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        : 'btn-primary'
+                    }`}
+                  >
+                    {isDone ? 'Reopen Practice Commitment' : '✓ Mark DSA Topic Commitment Completed'}
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            );
+          })
+        )}
+      </div>
+
+      {/* Rotation Info Card */}
+      <div className="lc-card p-4 text-xs space-y-1.5" style={{ backgroundColor: 'var(--bg-card-elevated)' }}>
+        <div className="font-bold text-indigo-400">ℹ️ About DSA Topic Rotation:</div>
+        <p className="text-slate-300 leading-relaxed">
+          Daily recommendations are selected from the 8 official units of CSN 3001 (Arrays, Linked Lists, Stacks, Queues, Trees, Binary Search Trees, Graphs, Heaps/Hashing). The scheduler rotates topics systematically to ensure comprehensive coverage before exams without forcing specific problem URLs.
+        </p>
+      </div>
     </div>
   );
 }
 
-// ----------------- 5. ENGLISH SPEAKING IMPROVEMENT (30 MIN) -----------------
+// ----------------- 5. ENGLISH SPEAKING IMPROVEMENT (SIMPLE DAILY TRACKING) -----------------
 
-function EnglishSpeakingView({ englishToday, onRefresh, showToast }) {
-  const [timerSeconds, setTimerSeconds] = useState(englishToday?.log?.time_spent_seconds || 0);
-  const [timerRunning, setTimerRunning] = useState(false);
+function EnglishSpeakingView({ englishToday, onRefresh, showToast, showAppreciation }) {
+  const [practised, setPractised] = useState(englishToday?.log?.is_completed ? 'yes' : null);
+  const [actualMinutes, setActualMinutes] = useState(
+    englishToday?.log?.actual_minutes !== undefined ? englishToday.log.actual_minutes : (englishToday?.log?.time_spent_seconds ? Math.floor(englishToday.log.time_spent_seconds / 60) : 30)
+  );
   const [notes, setNotes] = useState(englishToday?.log?.notes || '');
   const [history, setHistory] = useState([]);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     window.LastChanceAPI.getEnglishHistory().then(res => setHistory(res.history || [])).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    let interval = null;
-    if (timerRunning) {
-      interval = setInterval(() => {
-        setTimerSeconds(s => s + 1);
-      }, 1000);
-    } else {
-      clearInterval(interval);
+  const targetMinutes = 30;
+  const shortfallMinutes = Math.max(0, targetMinutes - (actualMinutes || 0));
+
+  const handleSave = async () => {
+    if (practised === null) {
+      showToast('Please confirm whether you practised today', 'error');
+      return;
     }
-    return () => clearInterval(interval);
-  }, [timerRunning]);
-
-  const topic = englishToday?.topic;
-  const isCompleted = englishToday?.log?.is_completed || false;
-
-  const formatTimer = (totalSec) => {
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
-
-  const handleSaveLog = async (markComplete = false) => {
+    setSaving(true);
     try {
-      await window.LastChanceAPI.saveEnglishLog({
-        log_date: englishToday?.date || new Date().toISOString().split('T')[0],
-        topic_id: topic?.id,
-        time_spent_seconds: timerSeconds,
-        is_completed: markComplete || (timerSeconds >= 1800),
-        notes: notes
-      });
+      const minsToSave = practised === 'yes' ? actualMinutes : 0;
+      await window.LastChanceAPI.saveEnglishSimple(
+        englishToday?.date || new Date().toISOString().split('T')[0],
+        minsToSave,
+        notes
+      );
       await onRefresh();
-      showToast(markComplete ? '30-minute English speaking session saved as completed!' : 'Session progress saved!');
+      const hRes = await window.LastChanceAPI.getEnglishHistory();
+      setHistory(hRes.history || []);
+      if (showAppreciation && minsToSave > 0) {
+        showAppreciation("Every day counts! English speaking practice saved.");
+      } else {
+        showToast('English speaking log updated.');
+      }
     } catch (e) {
-      showToast('Failed to save log: ' + e.message, 'error');
+      showToast('Failed to save English practice: ' + e.message, 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1750,9 +2196,9 @@ function EnglishSpeakingView({ englishToday, onRefresh, showToast }) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>English Speaking Improvement</h2>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>English Speaking (Daily 30m Tracking)</h2>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Daily 30-minute speaking practice scheduled separately outside the 4-hour academic target.
+            Simple completion tracking. Confirmed shortfall time is transparently accounted in daily unmet targets.
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -1763,122 +2209,141 @@ function EnglishSpeakingView({ englishToday, onRefresh, showToast }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Daily Topic & Prompt */}
-        <div className="lg:col-span-2 lc-card p-5 space-y-4">
-          <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
-            <div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 uppercase tracking-wider">
-                Today's Topic • {topic?.category || 'General'}
-              </span>
-              <h3 className="text-lg font-bold text-slate-100 mt-1">{topic?.title || 'Daily Speaking Practice'}</h3>
-            </div>
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-              isCompleted ? 'badge-success badge' : 'badge-warning badge'
-            }`}>
-              {isCompleted ? '✓ Completed Today' : 'Pending 30m'}
-            </span>
+        {/* Left 2 Cols: Simple Interaction Form */}
+        <div className="lg:col-span-2 lc-card p-6 space-y-5">
+          <div className="border-b pb-4" style={{ borderColor: 'var(--border-color)' }}>
+            <h3 className="text-base font-bold text-slate-100">Did you practise English speaking today?</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Separate compulsory commitment outside 4-hour academic target.</p>
           </div>
 
-          <div className="p-3.5 rounded-lg border text-xs space-y-1.5" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <div className="font-bold text-indigo-400">Objective:</div>
-            <p className="text-slate-300 leading-relaxed">{topic?.objective}</p>
-          </div>
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-4">
+              <label className={`p-4 rounded-xl border flex items-center space-x-3 cursor-pointer transition-smooth flex-1 ${
+                practised === 'yes' ? 'bg-emerald-500/10 border-emerald-500 shadow-sm' : 'bg-slate-800/40 border-slate-700'
+              }`}>
+                <input
+                  type="radio"
+                  name="practised"
+                  checked={practised === 'yes'}
+                  onChange={() => setPractised('yes')}
+                  className="w-4 h-4 accent-emerald-500"
+                />
+                <div>
+                  <div className="font-bold text-sm text-emerald-400">Yes, I practised today</div>
+                  <div className="text-[11px] text-slate-400">I spent dedicated speaking time aloud</div>
+                </div>
+              </label>
 
-          {/* Suggested Vocabulary */}
-          {topic?.vocabulary?.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="text-xs font-bold text-slate-300">Suggested Vocabulary & Phrases:</div>
-              <div className="flex flex-wrap gap-1.5">
-                {topic.vocabulary.map((v, i) => (
-                  <span key={i} className="code-pill text-xs font-semibold">{v}</span>
-                ))}
-              </div>
+              <label className={`p-4 rounded-xl border flex items-center space-x-3 cursor-pointer transition-smooth flex-1 ${
+                practised === 'no' ? 'bg-rose-500/10 border-rose-500 shadow-sm' : 'bg-slate-800/40 border-slate-700'
+              }`}>
+                <input
+                  type="radio"
+                  name="practised"
+                  checked={practised === 'no'}
+                  onChange={() => {
+                    setPractised('no');
+                    setActualMinutes(0);
+                  }}
+                  className="w-4 h-4 accent-rose-500"
+                />
+                <div>
+                  <div className="font-bold text-sm text-rose-400">No, missed today</div>
+                  <div className="text-[11px] text-slate-400">30 minutes unmet shortfall</div>
+                </div>
+              </label>
             </div>
-          )}
 
-          {/* Speaking Prompts */}
-          {topic?.speaking_prompts?.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-slate-300">Speaking Prompts & Questions to Answer Aloud:</div>
-              <div className="space-y-1.5">
-                {topic.speaking_prompts.map((p, i) => (
-                  <div key={i} className="text-xs p-2 rounded bg-slate-800/40 border border-slate-700/50 text-slate-300 flex items-start space-x-2">
-                    <span className="text-indigo-400 font-bold">{i + 1}.</span>
-                    <span>{p}</span>
+            {practised === 'yes' && (
+              <div className="p-4 rounded-xl border space-y-3" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-bold text-slate-200">How many minutes did you actually practise?</label>
+                  <div className="flex items-center space-x-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      max="180"
+                      value={actualMinutes}
+                      onChange={e => setActualMinutes(Math.max(0, Number(e.target.value)))}
+                      className="w-20 px-3 py-1.5 text-sm rounded border text-center font-mono font-bold"
+                    />
+                    <span className="text-xs text-slate-400 font-medium">mins</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
 
-          {/* Speech Notes & Observations */}
-          <div className="space-y-1.5 pt-2">
-            <label className="block text-xs font-bold text-slate-300">Speech Notes, Grammar & Fluency Observations:</label>
-            <textarea
-              rows="3"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Record points you discussed, pronunciation doubts, or vocabulary you used..."
-              className="w-full text-xs"
-            />
+                <div className="p-3 rounded-lg border text-xs space-y-1" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+                  <div className="flex justify-between font-semibold">
+                    <span>Target: 30 minutes</span>
+                    <span>Actual: {actualMinutes} minutes</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-400">Accounting:</span>
+                    <span className={shortfallMinutes > 0 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
+                      {shortfallMinutes > 0
+                        ? `Shortfall: ${shortfallMinutes} mins (added to unmet target time)`
+                        : 'Zero shortfall! Target fully satisfied.'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-300">Notes / Fluency Observations (Optional):</label>
+              <textarea
+                rows="2"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="What topic did you speak on? Any pronunciation or vocabulary doubts?"
+                className="w-full text-xs"
+              />
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={saving || practised === null}
+              className="w-full py-2.5 rounded-lg text-xs font-bold btn-primary disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save English Speaking Record'}
+            </button>
           </div>
         </div>
 
-        {/* Right 1 Col: Speaking Timer & History */}
+        {/* Right 1 Col: Practice History & Shortfall Accounting */}
         <div className="space-y-6">
-          {/* Speaking Timer Box */}
-          <div className="lc-card p-5 space-y-4 text-center">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Practice Timer</h3>
-            <div className="text-4xl font-black font-mono tracking-tight text-slate-100 py-2">
-              {formatTimer(timerSeconds)}
-            </div>
-            <div className="text-xs text-slate-400 font-medium">Target: 30:00 minutes</div>
-
-            <div className="flex items-center justify-center space-x-2 pt-2">
-              <button
-                onClick={() => setTimerRunning(!timerRunning)}
-                className={`px-4 py-2 rounded-lg text-xs font-bold ${
-                  timerRunning ? 'bg-amber-600 text-white' : 'btn-primary'
-                }`}
-              >
-                {timerRunning ? '⏸️ Pause Timer' : '▶️ Start Speaking'}
-              </button>
-              <button
-                onClick={() => { setTimerRunning(false); setTimerSeconds(0); }}
-                className="px-3 py-2 rounded-lg text-xs font-medium btn-secondary"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div className="pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
-              <button
-                onClick={() => handleSaveLog(true)}
-                className="w-full py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 shadow transition-smooth"
-              >
-                ✓ Mark 30m Practice Completed
-              </button>
+          <div className="lc-card p-5 space-y-3">
+            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Practice Summary</h4>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                <span className="text-slate-400">Daily Target:</span>
+                <span className="font-bold text-slate-200">30 minutes</span>
+              </div>
+              <div className="flex justify-between py-1 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                <span className="text-slate-400">Today's Actual:</span>
+                <span className="font-bold text-amber-400">{actualMinutes} minutes</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-slate-400">Unmet Shortfall:</span>
+                <span className="font-bold text-rose-400">{shortfallMinutes} minutes</span>
+              </div>
             </div>
           </div>
 
-          {/* Recent History Table */}
-          <div className="lc-card p-4 space-y-3">
-            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Recent Practice Log</h4>
-            <div className="space-y-2 text-xs max-h-48 overflow-y-auto pr-1">
+          <div className="lc-card p-5 space-y-3">
+            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Recent Practice History</h4>
+            <div className="space-y-2 text-xs max-h-56 overflow-y-auto pr-1">
               {history.length === 0 ? (
-                <p className="text-[11px] text-slate-500 text-center py-4">No past logs recorded.</p>
+                <p className="text-slate-500 text-center py-4">No logs recorded yet.</p>
               ) : (
-                history.slice(0, 7).map((h, i) => (
-                  <div key={i} className="p-2 rounded border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                history.map((h, i) => (
+                  <div key={i} className="p-2.5 rounded-lg border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
                     <div>
-                      <div className="font-semibold text-slate-300">{h.log_date}</div>
-                      <div className="text-[10px] text-slate-400">{h.topic_title || 'Practice Session'}</div>
+                      <div className="font-semibold text-slate-200">{h.log_date}</div>
+                      <div className="text-[10px] text-slate-400">Shortfall: {h.shortfall_minutes || 0}m</div>
                     </div>
-                    <div className="text-right">
-                      <span className={`text-[10px] font-bold ${h.is_completed ? 'text-emerald-400' : 'text-amber-400'}`}>
-                        {Math.floor(h.time_spent_seconds / 60)} mins
-                      </span>
-                    </div>
+                    <span className={`text-xs font-bold ${h.is_completed ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {h.actual_minutes || Math.floor((h.time_spent_seconds || 0) / 60)} mins
+                    </span>
                   </div>
                 ))
               )}
@@ -2057,11 +2522,20 @@ function ExtraTimeView({ onNavigate, onStartSession, showToast }) {
 
 // ----------------- 8. PROGRESS & ANALYTICS VIEW -----------------
 
-function AnalyticsView({ feasibility, onRefresh, showToast }) {
+function AnalyticsView({ feasibility, onRefresh, showToast, showAppreciation }) {
   const [analyticsData, setAnalyticsData] = useState(null);
+  const [wastedGraphData, setWastedGraphData] = useState([]);
+  const [wastedFilter, setWastedFilter] = useState('ALL');
+  const [selectedDayDetail, setSelectedDayDetail] = useState(null);
 
   useEffect(() => {
     window.LastChanceAPI.getAnalytics().then(res => setAnalyticsData(res)).catch(() => {});
+    window.LastChanceAPI.getWastedTimeGraph().then(res => {
+      setWastedGraphData(res.days || []);
+      if (res.days?.length > 0) {
+        setSelectedDayDetail(res.days[0]);
+      }
+    }).catch(e => console.error(e));
   }, []);
 
   const subjectsStats = analyticsData?.subjects_stats || [];
@@ -2072,7 +2546,7 @@ function AnalyticsView({ feasibility, onRefresh, showToast }) {
       <div>
         <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Progress & Learning Analytics</h2>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          Real stored metrics: academic study time vs commitments, course completion, and workload trajectory
+          Real stored metrics: academic study time vs commitments, course completion, and wasted-time accounting
         </p>
       </div>
 
@@ -2091,6 +2565,141 @@ function AnalyticsView({ feasibility, onRefresh, showToast }) {
           <p className="text-xs text-slate-300">{feasibility.warning_message}</p>
         </div>
       )}
+
+      {/* Dedicated Wasted Time & Shortfall Day-Wise Graph (Section 13) */}
+      <div className="lc-card p-5 space-y-4 border-rose-500/30">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+          <div>
+            <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-2">
+              <span>⏱️ Wasted & Unmet Target Time (Day-Wise Graph)</span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              Transparent daily accounting: Confirmed Wasted Time, English Speaking Shortfall, and Missed Scheduled Study
+            </p>
+          </div>
+          <div className="flex items-center space-x-1.5 text-xs">
+            <button
+              onClick={() => setWastedFilter('ALL')}
+              className={`px-2.5 py-1 rounded text-[11px] font-semibold ${wastedFilter === 'ALL' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              All Categories
+            </button>
+            <button
+              onClick={() => setWastedFilter('CONFIRMED')}
+              className={`px-2.5 py-1 rounded text-[11px] font-semibold ${wastedFilter === 'CONFIRMED' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              Confirmed
+            </button>
+            <button
+              onClick={() => setWastedFilter('ENGLISH')}
+              className={`px-2.5 py-1 rounded text-[11px] font-semibold ${wastedFilter === 'ENGLISH' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              English
+            </button>
+            <button
+              onClick={() => setWastedFilter('MISSED')}
+              className={`px-2.5 py-1 rounded text-[11px] font-semibold ${wastedFilter === 'MISSED' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              Missed Study
+            </button>
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap items-center gap-4 text-xs pt-1">
+          <div className="flex items-center space-x-1.5">
+            <span className="w-3 h-3 rounded-sm bg-orange-500"></span>
+            <span className="text-slate-300">Confirmed Wasted</span>
+          </div>
+          <div className="flex items-center space-x-1.5">
+            <span className="w-3 h-3 rounded-sm bg-amber-500"></span>
+            <span className="text-slate-300">English Shortfall</span>
+          </div>
+          <div className="flex items-center space-x-1.5">
+            <span className="w-3 h-3 rounded-sm bg-rose-500"></span>
+            <span className="text-slate-300">Missed Study</span>
+          </div>
+        </div>
+
+        {/* Day-Wise Horizontal Bar Timeline Container */}
+        <div className="space-y-2 overflow-x-auto max-h-72 overflow-y-auto pr-2">
+          {wastedGraphData.length === 0 ? (
+            <p className="text-xs text-slate-400 py-6 text-center">No wasted time records logged yet.</p>
+          ) : (
+            wastedGraphData.slice(0, 21).map((day, idx) => {
+              const maxScale = 120; // 120 minutes max scale
+              const confirmed = day.confirmed_wasted_minutes || 0;
+              const english = day.english_shortfall_minutes || 0;
+              const missed = day.missed_scheduled_study_minutes || 0;
+              const total = day.total_unproductive_minutes || 0;
+
+              const isSelected = selectedDayDetail?.date === day.date;
+
+              return (
+                <div
+                  key={idx}
+                  onClick={() => setSelectedDayDetail(day)}
+                  className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 cursor-pointer transition-smooth ${
+                    isSelected ? 'border-rose-500 bg-rose-500/10' : 'hover:bg-slate-800/30'
+                  }`}
+                  style={{ backgroundColor: isSelected ? undefined : 'var(--bg-card-elevated)', borderColor: isSelected ? undefined : 'var(--border-color)' }}
+                >
+                  <div className="w-24 shrink-0 font-mono text-xs font-bold text-slate-300">
+                    {day.date}
+                    {day.is_future && <span className="block text-[9px] text-indigo-400 font-sans">Projection</span>}
+                  </div>
+
+                  <div className="flex-1 bg-slate-900 rounded h-4 flex overflow-hidden">
+                    {(wastedFilter === 'ALL' || wastedFilter === 'CONFIRMED') && confirmed > 0 && (
+                      <div
+                        style={{ width: `${Math.min(100, (confirmed / maxScale) * 100)}%` }}
+                        className="bg-orange-500 h-full transition-smooth"
+                        title={`Confirmed Wasted: ${confirmed}m`}
+                      ></div>
+                    )}
+                    {(wastedFilter === 'ALL' || wastedFilter === 'ENGLISH') && english > 0 && (
+                      <div
+                        style={{ width: `${Math.min(100, (english / maxScale) * 100)}%` }}
+                        className="bg-amber-500 h-full transition-smooth"
+                        title={`English Shortfall: ${english}m`}
+                      ></div>
+                    )}
+                    {(wastedFilter === 'ALL' || wastedFilter === 'MISSED') && missed > 0 && (
+                      <div
+                        style={{ width: `${Math.min(100, (missed / maxScale) * 100)}%` }}
+                        className="bg-rose-500 h-full transition-smooth"
+                        title={`Missed Study: ${missed}m`}
+                      ></div>
+                    )}
+                  </div>
+
+                  <div className="w-20 text-right shrink-0 font-mono text-xs font-bold" style={{ color: total > 0 ? '#fb7185' : '#10b981' }}>
+                    {total} mins
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Selected Day Inspector */}
+        {selectedDayDetail && (
+          <div className="p-3.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-4 mt-2" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+            <div>
+              <span className="font-bold text-slate-200">Selected Date: {selectedDayDetail.date}</span>
+              <span className="text-[11px] text-slate-400 ml-2">({selectedDayDetail.is_future ? 'Upcoming Day' : 'Recorded Actual'})</span>
+            </div>
+            <div className="flex items-center space-x-4">
+              <span>Confirmed: <strong className="text-orange-400">{selectedDayDetail.confirmed_wasted_minutes || 0}m</strong></span>
+              <span>English Shortfall: <strong className="text-amber-400">{selectedDayDetail.english_shortfall_minutes || 0}m</strong></span>
+              <span>Missed Study: <strong className="text-rose-400">{selectedDayDetail.missed_scheduled_study_minutes || 0}m</strong></span>
+              <span className="border-l pl-3" style={{ borderColor: 'var(--border-color)' }}>
+                Total: <strong className="text-rose-400 font-bold">{selectedDayDetail.total_unproductive_minutes || 0}m</strong>
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Course Completion Breakdown */}
       <div className="lc-card p-5 space-y-4">

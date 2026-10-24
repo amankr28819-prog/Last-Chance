@@ -132,6 +132,35 @@ const API = {
   getHistory: () => API.get('/api/history'),
   getRevision: () => API.get('/api/revision'),
 
+  // Full Horizon Schedule
+  getFullSchedule: () => API.get('/api/schedule/full'),
+
+  // Topic Status Checklist Control
+  updateTopicStatus: (topicId, masteryLevel, notes = null) => API.put(`/api/topics/${topicId}/status`, { mastery_level: masteryLevel, notes }),
+
+  // Wasted Time & Shortfall
+  getWastedTimeSummary: (dateStr = null) => API.get(`/api/wasted-time/summary${dateStr ? '?date_str=' + dateStr : ''}`),
+  logWastedTime: (data) => API.post('/api/wasted-time/log', data),
+  getWastedTimeGraph: (startDate = null, endDate = null) => {
+    let url = '/api/wasted-time/graph';
+    const params = [];
+    if (startDate) params.push(`start_date=${startDate}`);
+    if (endDate) params.push(`end_date=${endDate}`);
+    if (params.length) url += `?${params.join('&')}`;
+    return API.get(url);
+  },
+
+  // DSA Topic Recommendations
+  getDSATopics: (dateStr = null) => API.get(`/api/dsa/topics${dateStr ? '?date_str=' + dateStr : ''}`),
+  updateDSATopic: (id, data) => API.put(`/api/dsa/topic/${id}`, data),
+
+  // Simple English Practice
+  getEnglishStatus: (dateStr = null) => API.get(`/api/english/status${dateStr ? '?date_str=' + dateStr : ''}`),
+  saveEnglishSimple: (data) => API.post('/api/english/simple-log', data),
+
+  // Courses & Units Checklist Hierarchy
+  getCourses: () => API.get('/api/courses'),
+
   uploadSyllabus: (file) => {
     const fd = new FormData();
     fd.append('file', file);

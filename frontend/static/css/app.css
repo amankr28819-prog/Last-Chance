@@ -69,69 +69,96 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
 }
 
-/* Light Theme Tokens */
+/* Light Theme Tokens — Comfortable Warm-White Palette */
 [data-theme="light"] {
-  --bg-page: #f4f6fa;
-  --bg-sidebar: #ffffff;
-  --bg-header: rgba(255, 255, 255, 0.95);
-  --bg-card: #ffffff;
-  --bg-card-hover: #f8fafc;
-  --bg-card-elevated: #f1f5f9;
-  --bg-glass: rgba(255, 255, 255, 0.9);
+  --bg-page: #FAF8F5; /* Warm off-white comfortable surface */
+  --bg-sidebar: #FFFFFF;
+  --bg-header: rgba(255, 255, 255, 0.96);
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F5F2EB;
+  --bg-card-elevated: #F0EDE5;
+  --bg-glass: rgba(255, 255, 255, 0.94);
 
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  --text-inverse: #ffffff;
+  --text-primary: #1C1917; /* Dark charcoal primary text (maximum contrast) */
+  --text-secondary: #44403C; /* High-legibility secondary text */
+  --text-muted: #78716C; /* Warm muted text */
+  --text-inverse: #FFFFFF;
 
-  --border-color: #e2e8f0;
-  --border-focus: #4f46e5;
-  --border-hover: #cbd5e1;
+  --border-color: #E7E5E4; /* Subtle warm-gray border */
+  --border-focus: #4F46E5;
+  --border-hover: #D6D3D1;
 
-  --input-bg: #ffffff;
-  --input-text: #0f172a;
-  --input-placeholder: #94a3b8;
-  --input-border: #cbd5e1;
-  --input-focus-border: #4f46e5;
+  --input-bg: #FFFFFF;
+  --input-text: #1C1917;
+  --input-placeholder: #A8A29E;
+  --input-border: #D6D3D1;
+  --input-focus-border: #4F46E5;
 
-  --btn-primary-bg: #4f46e5;
-  --btn-primary-hover: #4338ca;
-  --btn-primary-text: #ffffff;
-  --btn-secondary-bg: #f1f5f9;
-  --btn-secondary-hover: #e2e8f0;
-  --btn-secondary-text: #1e293b;
+  --btn-primary-bg: #4F46E5;
+  --btn-primary-hover: #4338CA;
+  --btn-primary-text: #FFFFFF;
+  --btn-secondary-bg: #F5F2EB;
+  --btn-secondary-hover: #E7E5E4;
+  --btn-secondary-text: #292524;
 
-  --link-color: #4f46e5;
-  --link-hover: #3730a3;
+  --link-color: #4F46E5;
+  --link-hover: #3730A3;
 
-  --state-success-bg: #ecfdf5;
-  --state-success-border: #a7f3d0;
-  --state-success-text: #065f46;
+  --state-success-bg: #ECFDF5;
+  --state-success-border: #A7F3D0;
+  --state-success-text: #065F46;
 
-  --state-warning-bg: #fffbeb;
-  --state-warning-border: #fde68a;
-  --state-warning-text: #92400e;
+  --state-warning-bg: #FFFBEB;
+  --state-warning-border: #FDE68A;
+  --state-warning-text: #92400E;
 
-  --state-error-bg: #fef2f2;
-  --state-error-border: #fecaca;
-  --state-error-text: #991b1b;
+  --state-error-bg: #FEF2F2;
+  --state-error-border: #FECACA;
+  --state-error-text: #991B1B;
 
-  --state-info-bg: #f0f9ff;
-  --state-info-border: #bae6fd;
+  --state-info-bg: #F0F9FF;
+  --state-info-border: #BAE6FD;
   --state-info-text: #075985;
 
-  --cal-bg: #ffffff;
-  --cal-border: #e2e8f0;
-  --cal-today-bg: #eff6ff;
-  --cal-cell-hover: #f8fafc;
-  --cal-inactive-bg: #f8fafc;
+  --cal-bg: #FFFFFF;
+  --cal-border: #E7E5E4;
+  --cal-today-bg: #EEF2FF;
+  --cal-cell-hover: #F5F2EB;
+  --cal-inactive-bg: #F5F2EB;
 
-  --modal-bg: #ffffff;
-  --modal-overlay: rgba(15, 23, 42, 0.6);
+  --modal-bg: #FFFFFF;
+  --modal-overlay: rgba(28, 25, 23, 0.65);
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 2px 0 rgba(28, 25, 23, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(28, 25, 23, 0.07), 0 2px 4px -2px rgba(28, 25, 23, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(28, 25, 23, 0.09), 0 4px 6px -4px rgba(28, 25, 23, 0.05);
+}
+
+/* Toast Appreciation Animation */
+.appreciation-toast {
+  animation: slideInToast 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards, fadeOutToast 0.4s ease 3.6s forwards;
+}
+
+@keyframes slideInToast {
+  from {
+    transform: translateY(20px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOutToast {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(12px);
+  }
 }
 
 /* Base Styles */

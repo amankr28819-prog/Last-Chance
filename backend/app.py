@@ -9,13 +9,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.database import get_connection, init_db, get_setting, set_setting, DB_PATH
+from backend.database import (
+    get_connection, init_db, get_setting, set_setting, DB_PATH,
+    log_wasted_time, get_wasted_time_summary, get_wasted_time_graph_data,
+    get_daily_dsa_topics, update_daily_dsa_topic, get_english_status_today, save_english_practice
+)
 from backend.models import (
     SubjectModel, SubjectUpdateModel, TopicModel, TopicUpdateModel,
     SettingsModel, TaskCompletionRequest, StartSessionRequest, FinishSessionRequest,
     FeasibilityReport, DSAQuestionModel, DSAAssignmentModel, DSAStatusUpdateRequest,
     EnglishTopicModel, DailyEnglishLogModel, EnglishLogSaveRequest, QuoteModel,
-    CalendarEventModel, CalendarEventCreate, CalendarEventUpdate
+    CalendarEventModel, CalendarEventCreate, CalendarEventUpdate,
+    WastedTimeLogCreate, WastedTimeLogModel, EnglishLogSimpleRequest,
+    DSATopicAssignmentUpdate, TopicStatusUpdateRequest
 )
 from backend.scheduler import StudyScheduler
 from backend.syllabus_parser import SyllabusParser
@@ -58,15 +64,44 @@ def health_check():
 
 @app.get("/api/time")
 def get_current_time(conn=Depends(get_db)):
-    """Returns the real, dynamic local time and date for Asia/Kolkata."""
+    """Returns the real, dynamic local time, countdown to midnight, and daily commitment tracking for Asia/Kolkata."""
     now = datetime.now()
     scheduler = StudyScheduler(conn)
     date_info = scheduler.calculate_dates()
     today = date_info["today"]
-    
+    today_str = today.strftime("%Y-%m-%d")
+
+    # Time left until midnight
+    midnight = datetime.combine(now.date() + timedelta(days=1), datetime.min.time())
+    diff = midnight - now
+    sec_to_midnight = max(0, int(diff.total_seconds()))
+    hours_left = sec_to_midnight // 3600
+    minutes_left = (sec_to_midnight % 3600) // 60
+    seconds_left = sec_to_midnight % 60
+
+    # Today's academic study minutes completed
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COALESCE(SUM(actual_minutes), 0) as completed,
+               COALESCE(SUM(duration_minutes), 0) as planned
+        FROM study_schedules
+        WHERE scheduled_date = ?
+    """, (today_str,))
+    study_r = cursor.fetchone()
+    acad_completed = study_r["completed"] if study_r else 0
+    acad_planned = study_r["planned"] if study_r else 240
+    acad_target = int(get_setting(conn, "daily_academic_target_minutes", 240))
+    acad_remaining = max(0, acad_target - acad_completed)
+
+    # English speaking status
+    eng_status = get_english_status_today(conn, today_str)
+
+    # DSA topics status
+    dsa_status = get_daily_dsa_topics(conn, today_str)
+
     return {
         "iso": now.isoformat(),
-        "date_str": today.strftime("%Y-%m-%d"),
+        "date_str": today_str,
         "time_str": now.strftime("%H:%M:%S"),
         "formatted_date": today.strftime("%A, %d %B %Y"),
         "formatted_time": now.strftime("%I:%M:%S %p"),
@@ -76,7 +111,25 @@ def get_current_time(conn=Depends(get_db)):
         "month_name": today.strftime("%B"),
         "year": today.year,
         "timezone": get_setting(conn, "time_zone", "Asia/Kolkata"),
-        "simulated": get_setting(conn, "simulated_today", None) is not None
+        "simulated": get_setting(conn, "simulated_today", None) is not None,
+        "time_left_today": {
+            "seconds_to_midnight": sec_to_midnight,
+            "hours": hours_left,
+            "minutes": minutes_left,
+            "seconds": seconds_left,
+            "formatted": f"{hours_left}h {minutes_left}m {seconds_left}s left today",
+            "academic_target_minutes": acad_target,
+            "academic_planned_minutes": acad_planned,
+            "academic_completed_minutes": acad_completed,
+            "academic_remaining_minutes": acad_remaining,
+            "english_target_minutes": 30,
+            "english_actual_minutes": eng_status["actual_minutes"],
+            "english_shortfall_minutes": eng_status["shortfall_minutes"],
+            "english_completed": eng_status["is_completed"],
+            "dsa_completed_count": dsa_status["completed_count"],
+            "dsa_target_count": 2,
+            "dsa_is_completed": dsa_status["is_completed"]
+        }
     }
 
 @app.get("/api/dates")
@@ -400,6 +453,175 @@ def get_schedules_range(start_date: Optional[str] = None, end_date: Optional[str
     query += " ORDER BY sc.scheduled_date ASC, sc.id ASC"
     cursor.execute(query, tuple(params))
     return [dict(r) for r in cursor.fetchall()]
+
+@app.get("/api/schedule/full")
+def get_full_horizon_schedule(conn=Depends(get_db)):
+    """Returns the complete day-by-day study schedule through the final examination date (4 Dec 2026)."""
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            sc.*,
+            t.title as topic_title,
+            u.title as unit_title, u.unit_number,
+            s.name as subject_name, s.code as subject_code, s.color as subject_color
+        FROM study_schedules sc
+        JOIN topics t ON sc.topic_id = t.id
+        JOIN units u ON t.unit_id = u.id
+        JOIN subjects s ON sc.subject_id = s.id
+        ORDER BY sc.scheduled_date ASC, sc.id ASC
+    """)
+    rows = [dict(r) for r in cursor.fetchall()]
+
+    # Group by date
+    days_map = {}
+    for r in rows:
+        d = r["scheduled_date"]
+        days_map.setdefault(d, []).append(r)
+
+    timeline = []
+    for d, items in sorted(days_map.items()):
+        total_mins = sum(i["duration_minutes"] for i in items)
+        comp_mins = sum(i["actual_minutes"] for i in items if i["status"] == "COMPLETED")
+        timeline.append({
+            "date": d,
+            "tasks_count": len(items),
+            "planned_minutes": total_mins,
+            "completed_minutes": comp_mins,
+            "tasks": items
+        })
+
+    return {
+        "date_info": date_info,
+        "total_sessions": len(rows),
+        "days_count": len(timeline),
+        "timeline": timeline
+    }
+
+@app.put("/api/topics/{topic_id}/status")
+def update_topic_status(topic_id: int, req: TopicStatusUpdateRequest, conn=Depends(get_db)):
+    """Explicit topic-level checklist completion control."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE topics
+        SET mastery_level = ?, notes = COALESCE(?, notes)
+        WHERE id = ?
+    """, (req.mastery_level, req.notes, topic_id))
+    conn.commit()
+
+    # If marked MASTERED or COMPLETED, update any pending schedule item for this topic
+    if req.mastery_level in ("COMPLETED", "MASTERED"):
+        cursor.execute("UPDATE study_schedules SET status = 'COMPLETED', actual_minutes = duration_minutes, completed_at = datetime('now') WHERE topic_id = ? AND status = 'PENDING'", (topic_id,))
+        conn.commit()
+
+    return {"success": True, "topic_id": topic_id, "mastery_level": req.mastery_level}
+
+# ----------------- WASTED TIME & SHORTFALL ACCOUNTING -----------------
+
+@app.get("/api/wasted-time/summary")
+def get_wasted_time_report(date_str: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    target_date = date_str or scheduler.calculate_dates()["today_str"]
+    return get_wasted_time_summary(conn, target_date)
+
+@app.post("/api/wasted-time/log")
+def log_wasted_time_entry(req: WastedTimeLogCreate, conn=Depends(get_db)):
+    new_id = log_wasted_time(conn, req.log_date, req.minutes, req.reason or "", req.category)
+    return {"success": True, "id": new_id, "summary": get_wasted_time_summary(conn, req.log_date)}
+
+@app.get("/api/wasted-time/graph")
+def get_wasted_time_graph(start_date: Optional[str] = None, end_date: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    s_date = start_date or (date_info["today"] - timedelta(days=7)).strftime("%Y-%m-%d")
+    e_date = end_date or "2026-12-04"
+    data = get_wasted_time_graph_data(conn, s_date, e_date)
+    return {"data": data}
+
+# ----------------- DAILY DSA TOPIC RECOMMENDATIONS -----------------
+
+@app.get("/api/dsa/topics")
+def get_daily_dsa_topic_recommendations(date_str: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    target_date = date_str or scheduler.calculate_dates()["today_str"]
+    return get_daily_dsa_topics(conn, target_date)
+
+@app.put("/api/dsa/topic/{assignment_id}")
+def update_dsa_topic_progress(assignment_id: int, req: DSATopicAssignmentUpdate, conn=Depends(get_db)):
+    update_daily_dsa_topic(conn, assignment_id, req.status, req.time_spent_minutes, req.notes or "")
+    return {"success": True}
+
+# ----------------- SIMPLE ENGLISH PRACTICE LOGGING -----------------
+
+@app.get("/api/english/status")
+def get_english_practice_status(date_str: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    target_date = date_str or scheduler.calculate_dates()["today_str"]
+    return get_english_status_today(conn, target_date)
+
+@app.post("/api/english/simple-log")
+def log_english_practice_simple(req: EnglishLogSimpleRequest, conn=Depends(get_db)):
+    result = save_english_practice(conn, req.log_date, req.actual_minutes, req.notes or "")
+    return {"success": True, "data": result}
+
+# ----------------- COURSES & UNITS CHECKLIST EXPLORER -----------------
+
+@app.get("/api/courses")
+def get_courses_hierarchy(conn=Depends(get_db)):
+    """Returns Course -> Unit -> Topic complete hierarchy with completion indicators."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, code, name, credits, total_lectures, priority, color, exam_date FROM subjects ORDER BY id ASC")
+    courses = [dict(r) for r in cursor.fetchall()]
+
+    for c in courses:
+        cursor.execute("SELECT id, unit_number, title, lecture_allocation FROM units WHERE subject_id = ? ORDER BY unit_number ASC", (c["id"],))
+        units = [dict(u) for u in cursor.fetchall()]
+
+        total_course_topics = 0
+        completed_course_topics = 0
+        total_course_minutes = 0
+
+        for u in units:
+            cursor.execute("""
+                SELECT 
+                    t.id, t.title, t.estimated_minutes, t.mastery_level, t.order_index, t.notes,
+                    (SELECT GROUP_CONCAT(title, '||') FROM subtopics st WHERE st.topic_id = t.id) as subtopics_str
+                FROM topics t
+                WHERE t.unit_id = ?
+                ORDER BY t.order_index ASC
+            """, (u["id"],))
+            topics = []
+            u_completed = 0
+            u_mins = 0
+            for tr in cursor.fetchall():
+                td = dict(tr)
+                td["subtopics"] = td["subtopics_str"].split("||") if td.get("subtopics_str") else []
+                td.pop("subtopics_str", None)
+                if td["mastery_level"] in ("COMPLETED", "MASTERED"):
+                    u_completed += 1
+                u_mins += td["estimated_minutes"]
+                topics.append(td)
+
+            u["topics"] = topics
+            u["topics_count"] = len(topics)
+            u["completed_count"] = u_completed
+            u["progress_percent"] = round((u_completed / len(topics) * 100), 1) if topics else 0.0
+            u["total_minutes"] = u_mins
+
+            total_course_topics += len(topics)
+            completed_course_topics += u_completed
+            total_course_minutes += u_mins
+
+        c["units"] = units
+        c["topics_count"] = total_course_topics
+        c["completed_count"] = completed_course_topics
+        c["progress_percent"] = round((completed_course_topics / total_course_topics * 100), 1) if total_course_topics else 0.0
+        c["total_minutes"] = total_course_minutes
+        c["total_hours"] = round(total_course_minutes / 60.0, 1)
+
+    return courses
 
 @app.post("/api/schedule/generate")
 def generate_schedule(preserve_completed: bool = True, conn=Depends(get_db)):

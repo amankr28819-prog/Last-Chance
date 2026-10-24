@@ -2,7 +2,7 @@ import sqlite3
 import json
 import os
 import shutil
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any, List
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
@@ -13,7 +13,7 @@ def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     
     # Safe migration: if old studypilot.db exists and lastchance.db does not, migrate it
-    if not os.path.exists(db_path) and os.path.exists(OLD_DB_PATH):
+    if db_path == DB_PATH and not os.path.exists(db_path) and os.path.exists(OLD_DB_PATH):
         try:
             shutil.copy2(OLD_DB_PATH, db_path)
         except Exception:
@@ -243,13 +243,44 @@ def init_db(db_path: str = DB_PATH):
         is_completed INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS wasted_time_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        log_date TEXT NOT NULL,
+        minutes INTEGER NOT NULL,
+        reason TEXT,
+        category TEXT NOT NULL DEFAULT 'Unproductive Time',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     """)
 
     conn.commit()
+
+    # Safe backwards-compatible column additions
+    def add_col_if_missing(table_name, col_name, col_def):
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        cols = [r["name"] for r in cursor.fetchall()]
+        if col_name not in cols:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
+            conn.commit()
+
+    add_col_if_missing("daily_english_logs", "actual_minutes", "INTEGER DEFAULT 0")
+    add_col_if_missing("daily_english_logs", "shortfall_minutes", "INTEGER DEFAULT 0")
+    add_col_if_missing("daily_dsa_assignments", "topic_name", "TEXT")
     seed_initial_data_if_empty(conn)
     seed_dsa_questions_if_empty(conn)
     seed_english_topics_if_empty(conn)
     seed_quotes_if_empty(conn)
+
+    # Clean any legacy reversed or cross-course prerequisite entries
+    try:
+        cursor.execute("UPDATE OR IGNORE prerequisites SET topic_id = 131, prerequisite_topic_id = 116 WHERE topic_id = 116 AND prerequisite_topic_id = 131")
+        cursor.execute("DELETE FROM prerequisites WHERE topic_id = 116 AND prerequisite_topic_id = 131")
+        cursor.execute("UPDATE OR IGNORE prerequisites SET topic_id = 103, prerequisite_topic_id = 102 WHERE topic_id = 102 AND prerequisite_topic_id = 43")
+        cursor.execute("DELETE FROM prerequisites WHERE topic_id = 102 AND prerequisite_topic_id = 43")
+        conn.commit()
+    except Exception:
+        pass
 
     # Ensure standard aliases for targets are populated
     for k, v in [("daily_academic_target_minutes", 240), ("english_speaking_target_minutes", 30), ("daily_dsa_count", 2)]:
@@ -305,7 +336,7 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
         "special_break_include_7th_day": False,
         "special_break_notice": "Note: Dec 6 to Dec 11 inclusive contains 6 calendar days. You can optionally include Dec 12 as the 7th day in Settings.",
         "weekday_minutes": 240,  # 4 hours academic study
-        "weekend_minutes": 300,  # 5 hours academic study on holidays
+        "weekend_minutes": 240,  # 4 hours academic study
         "college_hours": "09:00 - 12:00",
         "commute_minutes": 30,
         "sleep_hours": "23:30 - 06:30",
@@ -799,83 +830,86 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
                         VALUES (?, ?, ?)
                     """, (topic_id, st, s_idx))
 
-    # Add realistic prerequisites
-    cursor.execute("SELECT id, title FROM topics")
-    topic_map = {row["title"]: row["id"] for row in cursor.fetchall()}
+    # Add realistic prerequisites scoped by course code to prevent cross-course collisions
+    cursor.execute("SELECT id, code FROM subjects")
+    subject_map = {row["code"]: row["id"] for row in cursor.fetchall()}
+
+    cursor.execute("SELECT id, subject_id, title FROM topics")
+    topic_map = {(row["subject_id"], row["title"]): row["id"] for row in cursor.fetchall()}
 
     prereqs = [
-        # Discrete
-        ("Truth tables", "Propositions"),
-        ("Quantifiers", "Predicates"),
-        ("Rules of inference", "Truth tables"),
-        ("Methods of proofs", "Rules of inference"),
-        ("Equivalence relations and partitions", "Properties of relations"),
-        ("POSETs", "Partial orderings"),
-        ("Inversions", "Injection"),
-        ("Inversions", "Surjections"),
-        ("Solving linear recurrence relations", "Recurrence relations"),
-        ("Spanning trees", "Trees"),
-        ("Probability theory", "Introduction to probability"),
-        ("Bayes' theorem", "Probability theory"),
-        ("Expected value and variance", "Discrete random variables"),
+        # Discrete Structures (CSN 3003)
+        ("CSN 3003", "Truth tables", "Propositions"),
+        ("CSN 3003", "Quantifiers", "Predicates"),
+        ("CSN 3003", "Rules of inference", "Truth tables"),
+        ("CSN 3003", "Methods of proofs", "Rules of inference"),
+        ("CSN 3003", "Equivalence relations and partitions", "Properties of relations"),
+        ("CSN 3003", "POSETs", "Partial orderings"),
+        ("CSN 3003", "Inversions", "Injection"),
+        ("CSN 3003", "Inversions", "Surjections"),
+        ("CSN 3003", "Solving linear recurrence relations", "Recurrence relations"),
+        ("CSN 3003", "Spanning trees", "Trees"),
+        ("CSN 3003", "Probability theory", "Introduction to probability"),
+        ("CSN 3003", "Bayes' theorem", "Probability theory"),
+        ("CSN 3003", "Expected value and variance", "Discrete random variables"),
 
-        # Data Structures
-        ("Doubly linked lists", "Introduction to linked lists"),
-        ("Balanced brackets", "Introduction to stacks"),
-        ("Infix to postfix conversion", "Introduction to stacks"),
-        ("Job scheduling in CPU", "Queue implementation using arrays"),
-        ("Traversals in binary trees", "Binary trees"),
-        ("BFS in binary trees", "Binary trees"),
-        ("DFS in binary trees", "Binary trees"),
-        ("Insertion in BST", "Binary search trees"),
-        ("Deletion in BST", "Insertion in BST"),
-        ("AVL trees", "Binary search trees"),
-        ("B-trees", "Binary search trees"),
-        ("Graph traversal", "Graph implementation"),
-        ("Dijkstra's algorithm for single-source shortest paths", "Graph traversal"),
-        ("Prim's algorithm", "Spanning trees"),
-        ("Kruskal's algorithm", "Union-find data structure"),
-        ("Priority queues using heaps", "Heaps"),
+        # Data Structures (CSN 3001)
+        ("CSN 3001", "Doubly linked lists", "Introduction to linked lists"),
+        ("CSN 3001", "Balanced brackets", "Introduction to stacks"),
+        ("CSN 3001", "Infix to postfix conversion", "Introduction to stacks"),
+        ("CSN 3001", "Job scheduling in CPU", "Queue implementation using arrays"),
+        ("CSN 3001", "Traversals in binary trees", "Binary trees"),
+        ("CSN 3001", "BFS in binary trees", "Binary trees"),
+        ("CSN 3001", "DFS in binary trees", "Binary trees"),
+        ("CSN 3001", "Insertion in BST", "Binary search trees"),
+        ("CSN 3001", "Deletion in BST", "Insertion in BST"),
+        ("CSN 3001", "AVL trees", "Binary search trees"),
+        ("CSN 3001", "B-trees", "Binary search trees"),
+        ("CSN 3001", "Graph traversal", "Graph implementation"),
+        ("CSN 3001", "Dijkstra's algorithm for single-source shortest paths", "Graph traversal"),
+        ("CSN 3001", "Prim's algorithm", "Spanning trees"),
+        ("CSN 3001", "Kruskal's algorithm", "Union-find data structure"),
+        ("CSN 3001", "Priority queues using heaps", "Heaps"),
 
-        # OOP
-        ("Classes and instances", "Defining classes"),
-        ("Copy constructors", "Constructors for initialization"),
-        ("Static functions", "Defining classes"),
-        ("Friend functions", "Defining classes"),
-        ("Overloading binary operators", "Overloading unary operators"),
-        ("Overloading the assignment operator", "Copy constructors"),
-        ("Derived classes and base classes", "Defining classes"),
-        ("Derived-class constructors", "Derived classes and base classes"),
-        ("Types of inheritance", "Derived classes and base classes"),
-        ("Virtual functions", "Pointers to objects"),
-        ("Virtual functions", "Derived classes and base classes"),
+        # Object Oriented Programming (CSN 3004)
+        ("CSN 3004", "Copy constructors", "Constructors for initialization"),
+        ("CSN 3004", "Overloading binary operators", "Overloading unary operators"),
+        ("CSN 3004", "Derived-class constructors", "Derived classes and base classes"),
+        ("CSN 3004", "Types of inheritance", "Derived classes and base classes"),
+        ("CSN 3004", "Virtual functions", "Pointers to objects"),
+        ("CSN 3004", "Virtual functions", "Derived classes and base classes"),
 
-        # DS & ML
-        ("Exploring and visualising data", "Basics of data science and machine learning"),
-        ("Handling missing data", "Data sources and collection"),
-        ("Feature encoding", "Types of data"),
-        ("Feature scaling", "Data cleaning"),
-        ("Bias-variance trade-off", "Supervised learning"),
-        ("Overfitting and underfitting", "Bias-variance trade-off"),
-        ("Precision", "Confusion matrix"),
-        ("Recall", "Confusion matrix"),
-        ("F-score", "Precision"),
-        ("ROC curve", "Evaluation measures"),
-        ("Cross-validation", "Dataset division"),
-        ("Multiple linear regression", "Simple linear regression"),
-        ("Gradient descent algorithm", "Simple linear regression"),
-        ("Logistic regression", "Gradient descent algorithm"),
-        ("Principal Component Analysis", "Linear algebra"),
-        ("Hierarchical clustering", "K-means clustering"),
-        ("Density-based clustering", "K-means clustering")
+        # Data Science & Machine Learning (CSN 3002)
+        ("CSN 3002", "Exploring and visualising data", "Basics of data science and machine learning"),
+        ("CSN 3002", "Handling missing data", "Data sources and collection"),
+        ("CSN 3002", "Feature encoding", "Types of data"),
+        ("CSN 3002", "Feature scaling", "Feature encoding"),
+        ("CSN 3002", "Data cleaning", "Handling missing data"),
+        ("CSN 3002", "Bias-variance trade-off", "Supervised learning"),
+        ("CSN 3002", "Overfitting and underfitting", "Bias-variance trade-off"),
+        ("CSN 3002", "Precision", "Confusion matrix"),
+        ("CSN 3002", "Recall", "Confusion matrix"),
+        ("CSN 3002", "F-score", "Precision"),
+        ("CSN 3002", "ROC curve", "Evaluation measures"),
+        ("CSN 3002", "Cross-validation", "Dataset division"),
+        ("CSN 3002", "Multiple linear regression", "Simple linear regression"),
+        ("CSN 3002", "Gradient descent algorithm", "Simple linear regression"),
+        ("CSN 3002", "Logistic regression", "Gradient descent algorithm"),
+        ("CSN 3002", "Principal Component Analysis", "Linear algebra"),
+        ("CSN 3002", "Hierarchical clustering", "K-means clustering"),
+        ("CSN 3002", "Density-based clustering", "K-means clustering")
     ]
 
-    for topic_title, prereq_title in prereqs:
-        if topic_title in topic_map and prereq_title in topic_map:
-            cursor.execute("""
-                INSERT OR IGNORE INTO prerequisites (topic_id, prerequisite_topic_id)
-                VALUES (?, ?)
-            """, (topic_map[topic_title], topic_map[prereq_title]))
+    for code, topic_title, prereq_title in prereqs:
+        sub_id = subject_map.get(code)
+        if sub_id:
+            top_id = topic_map.get((sub_id, topic_title))
+            pre_id = topic_map.get((sub_id, prereq_title))
+            if top_id and pre_id:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO prerequisites (topic_id, prerequisite_topic_id)
+                    VALUES (?, ?)
+                """, (top_id, pre_id))
 
     conn.commit()
 
@@ -1207,3 +1241,333 @@ def seed_quotes_if_empty(conn: sqlite3.Connection):
             VALUES (?, ?, ?, ?, ?)
         """, (q[0], q[0], q[1], q[2], idx))
     conn.commit()
+
+# --- Wasted Time & Shortfall Accounting Helpers ---
+def log_wasted_time(conn: sqlite3.Connection, log_date: str, minutes: int, reason: str = "", category: str = "Unproductive Time") -> int:
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO wasted_time_logs (log_date, minutes, reason, category)
+        VALUES (?, ?, ?, ?)
+    """, (log_date, minutes, reason, category))
+    conn.commit()
+    return cursor.lastrowid
+
+def get_wasted_time_summary(conn: sqlite3.Connection, target_date: str) -> Dict[str, Any]:
+    """Calculates confirmed wasted time, English shortfall, and missed study minutes for a given date and week."""
+    cursor = conn.cursor()
+    
+    # 1. Confirmed wasted time for date
+    cursor.execute("SELECT COALESCE(SUM(minutes), 0) as total FROM wasted_time_logs WHERE log_date = ?", (target_date,))
+    confirmed_today = cursor.fetchone()["total"]
+
+    # 2. English speaking shortfall for date (Target is 30m)
+    cursor.execute("SELECT actual_minutes, shortfall_minutes, completed FROM daily_english_logs WHERE log_date = ? OR assigned_date = ?", (target_date, target_date))
+    eng_row = cursor.fetchone()
+    if eng_row:
+        eng_actual = eng_row["actual_minutes"] or 0
+        eng_shortfall = max(0, 30 - eng_actual)
+    else:
+        eng_actual = 0
+        eng_shortfall = 30 # default shortfall if not practiced
+
+    # 3. Missed scheduled academic study for date (Pending tasks that passed or incomplete portion)
+    cursor.execute("""
+        SELECT COALESCE(SUM(duration_minutes - actual_minutes), 0) as total_missed
+        FROM study_schedules
+        WHERE scheduled_date = ? AND status IN ('PENDING', 'MISSED', 'PARTIALLY_COMPLETED')
+    """, (target_date,))
+    missed_academic = cursor.fetchone()["total_missed"]
+
+    # Calculate weekly bounds (Monday to Sunday)
+    try:
+        dt = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except Exception:
+        dt = date.today()
+    week_start = dt - timedelta(days=dt.weekday())
+    week_end = week_start + timedelta(days=6)
+    w_start_str = week_start.strftime("%Y-%m-%d")
+    w_end_str = week_end.strftime("%Y-%m-%d")
+
+    # Weekly confirmed wasted
+    cursor.execute("SELECT COALESCE(SUM(minutes), 0) as total FROM wasted_time_logs WHERE log_date BETWEEN ? AND ?", (w_start_str, w_end_str))
+    weekly_confirmed = cursor.fetchone()["total"]
+
+    # Weekly English shortfall
+    cursor.execute("""
+        SELECT log_date, COALESCE(actual_minutes, 0) as actual
+        FROM daily_english_logs
+        WHERE (log_date BETWEEN ? AND ?) OR (assigned_date BETWEEN ? AND ?)
+    """, (w_start_str, w_end_str, w_start_str, w_end_str))
+    logged_eng = {r["log_date"]: r["actual"] for r in cursor.fetchall()}
+    
+    weekly_eng_shortfall = 0
+    cur_d = week_start
+    while cur_d <= min(dt, week_end):
+        d_str = cur_d.strftime("%Y-%m-%d")
+        act = logged_eng.get(d_str, 0)
+        weekly_eng_shortfall += max(0, 30 - act)
+        cur_d += timedelta(days=1)
+
+    # Weekly missed academic
+    cursor.execute("""
+        SELECT COALESCE(SUM(duration_minutes - actual_minutes), 0) as total_missed
+        FROM study_schedules
+        WHERE scheduled_date BETWEEN ? AND ? AND scheduled_date <= ? AND status IN ('PENDING', 'MISSED', 'PARTIALLY_COMPLETED')
+    """, (w_start_str, w_end_str, target_date))
+    weekly_missed_academic = cursor.fetchone()["total_missed"]
+
+    total_today = confirmed_today + eng_shortfall + missed_academic
+    total_week = weekly_confirmed + weekly_eng_shortfall + weekly_missed_academic
+
+    return {
+        "date": target_date,
+        "confirmed_wasted_minutes": confirmed_today,
+        "english_shortfall_minutes": eng_shortfall,
+        "missed_academic_minutes": missed_academic,
+        "total_unmet_minutes": total_today,
+        "weekly_confirmed_wasted_minutes": weekly_confirmed,
+        "weekly_english_shortfall_minutes": weekly_eng_shortfall,
+        "weekly_missed_academic_minutes": weekly_missed_academic,
+        "weekly_total_unmet_minutes": total_week,
+        "week_range": f"{w_start_str} to {w_end_str}"
+    }
+
+def get_wasted_time_graph_data(conn: sqlite3.Connection, start_date_str: str, end_date_str: str) -> List[Dict[str, Any]]:
+    """Returns day-wise time tracking for the wasted-time & shortfall graph."""
+    cursor = conn.cursor()
+    
+    # Pre-fetch confirmed wasted logs
+    cursor.execute("SELECT log_date, SUM(minutes) as total FROM wasted_time_logs WHERE log_date BETWEEN ? AND ? GROUP BY log_date", (start_date_str, end_date_str))
+    confirmed_map = {r["log_date"]: r["total"] for r in cursor.fetchall()}
+
+    # Pre-fetch English logs
+    cursor.execute("SELECT COALESCE(log_date, assigned_date) as dt, actual_minutes FROM daily_english_logs WHERE (log_date BETWEEN ? AND ?) OR (assigned_date BETWEEN ? AND ?)", (start_date_str, end_date_str, start_date_str, end_date_str))
+    eng_map = {r["dt"]: r["actual_minutes"] or 0 for r in cursor.fetchall()}
+
+    # Pre-fetch academic planned, completed, missed
+    cursor.execute("""
+        SELECT 
+            scheduled_date,
+            SUM(duration_minutes) as planned,
+            SUM(actual_minutes) as completed,
+            SUM(CASE WHEN status IN ('PENDING', 'MISSED', 'PARTIALLY_COMPLETED') THEN (duration_minutes - actual_minutes) ELSE 0 END) as missed
+        FROM study_schedules
+        WHERE scheduled_date BETWEEN ? AND ?
+        GROUP BY scheduled_date
+    """, (start_date_str, end_date_str))
+    sched_map = {r["scheduled_date"]: r for r in cursor.fetchall()}
+
+    try:
+        s_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        e_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    except Exception:
+        s_date = date.today() - timedelta(days=7)
+        e_date = date.today() + timedelta(days=30)
+
+    cur = s_date
+    today = date.today()
+    result = []
+    while cur <= e_date:
+        d_str = cur.strftime("%Y-%m-%d")
+        is_future = cur > today
+        
+        conf = confirmed_map.get(d_str, 0)
+        
+        if is_future:
+            # Future days do not have confirmed wasted or missed historical shortfall
+            eng_shortfall = 0
+            missed = 0
+            conf = 0
+        else:
+            eng_act = eng_map.get(d_str, None)
+            eng_shortfall = max(0, 30 - eng_act) if eng_act is not None else 30
+            sched = sched_map.get(d_str)
+            missed = sched["missed"] if sched else 0
+
+        sched_info = sched_map.get(d_str)
+        planned = sched_info["planned"] if sched_info else 240
+        completed = sched_info["completed"] if sched_info else 0
+
+        result.append({
+            "date": d_str,
+            "weekday": cur.strftime("%a"),
+            "is_future": is_future,
+            "confirmed_wasted_minutes": conf,
+            "english_shortfall_minutes": eng_shortfall,
+            "missed_academic_minutes": missed,
+            "total_unmet_minutes": conf + eng_shortfall + missed,
+            "planned_academic_minutes": planned,
+            "completed_academic_minutes": completed
+        })
+        cur += timedelta(days=1)
+    return result
+
+# --- Authoritative DSA Topics Rotation (CSN 3001 Syllabus) ---
+OFFICIAL_DSA_TOPICS = [
+    {"topic": "Linked Lists (Singly, Doubly & Circular)", "unit": "Unit 2"},
+    {"topic": "Stacks & Infix-Postfix Conversion", "unit": "Unit 3"},
+    {"topic": "Queues & Job Scheduling in CPU", "unit": "Unit 4"},
+    {"topic": "Binary Trees & BFS/DFS Traversals", "unit": "Unit 5"},
+    {"topic": "Binary Search Trees (BST & AVL Trees)", "unit": "Unit 6"},
+    {"topic": "Graphs & Graph Traversals (BFS, DFS)", "unit": "Unit 7"},
+    {"topic": "Shortest Paths (Dijkstra) & Minimum Spanning Trees (Prim/Kruskal)", "unit": "Unit 7"},
+    {"topic": "Heaps & Priority Queues", "unit": "Unit 8"},
+    {"topic": "Hashing & Collision Resolution", "unit": "Unit 8"},
+    {"topic": "Recursion & Algorithm Complexity Analysis", "unit": "Unit 1"}
+]
+
+def get_daily_dsa_topics(conn: sqlite3.Connection, target_date: str) -> Dict[str, Any]:
+    """Returns exactly two syllabus-aligned DSA topic recommendations for the day."""
+    cursor = conn.cursor()
+    
+    # Check if assignments already exist for date
+    cursor.execute("""
+        SELECT id, assigned_date, slot_number, status, topic_name, time_spent_minutes, mistakes_notes as notes, completed_at
+        FROM daily_dsa_assignments
+        WHERE assigned_date = ?
+        ORDER BY slot_number ASC
+    """, (target_date,))
+    existing = [dict(r) for r in cursor.fetchall()]
+
+    if len(existing) >= 2:
+        return {
+            "date": target_date,
+            "topics": existing,
+            "is_completed": all(t["status"] == "Solved" for t in existing),
+            "completed_count": sum(1 for t in existing if t["status"] == "Solved")
+        }
+
+    # Deterministic rotation based on day offset
+    try:
+        dt = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except Exception:
+        dt = date.today()
+    day_idx = (dt - date(2026, 1, 1)).days
+
+    t1_info = OFFICIAL_DSA_TOPICS[(day_idx * 2) % len(OFFICIAL_DSA_TOPICS)]
+    t2_info = OFFICIAL_DSA_TOPICS[(day_idx * 2 + 1) % len(OFFICIAL_DSA_TOPICS)]
+
+    # Fetch dummy question IDs or create placeholder assignments
+    cursor.execute("SELECT id FROM dsa_questions LIMIT 2")
+    q_rows = cursor.fetchall()
+    q1_id = q_rows[0]["id"] if q_rows else 1
+    q2_id = q_rows[1]["id"] if len(q_rows) > 1 else 2
+
+    # Insert or update slot 1
+    cursor.execute("""
+        INSERT OR IGNORE INTO daily_dsa_assignments (assigned_date, question_id, slot_number, topic_name, status)
+        VALUES (?, ?, 1, ?, 'Pending')
+    """, (target_date, q1_id, f"{t1_info['unit']}: {t1_info['topic']}"))
+    
+    # Insert or update slot 2
+    cursor.execute("""
+        INSERT OR IGNORE INTO daily_dsa_assignments (assigned_date, question_id, slot_number, topic_name, status)
+        VALUES (?, ?, 2, ?, 'Pending')
+    """, (target_date, q2_id, f"{t2_info['unit']}: {t2_info['topic']}"))
+    conn.commit()
+
+    cursor.execute("""
+        SELECT id, assigned_date, slot_number, status, topic_name, time_spent_minutes, mistakes_notes as notes, completed_at
+        FROM daily_dsa_assignments
+        WHERE assigned_date = ?
+        ORDER BY slot_number ASC
+    """, (target_date,))
+    items = [dict(r) for r in cursor.fetchall()]
+
+    return {
+        "date": target_date,
+        "topics": items,
+        "is_completed": all(t["status"] == "Solved" for t in items),
+        "completed_count": sum(1 for t in items if t["status"] == "Solved")
+    }
+
+def update_daily_dsa_topic(conn: sqlite3.Connection, assignment_id: int, status: str = "Solved", time_spent_minutes: int = 0, notes: str = "", is_completed: Optional[bool] = None) -> Dict[str, Any]:
+    cursor = conn.cursor()
+    if is_completed is not None:
+        status = "Solved" if is_completed else "Pending"
+    now_str = datetime.now().isoformat() if status == "Solved" else None
+    cursor.execute("""
+        UPDATE daily_dsa_assignments
+        SET status = ?, time_spent_minutes = ?, mistakes_notes = ?, completed_at = ?
+        WHERE id = ?
+    """, (status, time_spent_minutes, notes, now_str, assignment_id))
+    conn.commit()
+    cursor.execute("SELECT * FROM daily_dsa_assignments WHERE id = ?", (assignment_id,))
+    row = cursor.fetchone()
+    return dict(row) if row else {"id": assignment_id, "status": status}
+
+# --- Simple English Practice Logging ---
+def get_english_status_today(conn: sqlite3.Connection, target_date: str) -> Dict[str, Any]:
+    cursor = conn.cursor()
+    
+    # Topic of the day for guidance
+    try:
+        dt = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except Exception:
+        dt = date.today()
+    cursor.execute("SELECT id, title, category, objective FROM english_speaking_topics ORDER BY id ASC")
+    all_topics = cursor.fetchall()
+    topic = dict(all_topics[((dt - date(2026, 1, 1)).days) % len(all_topics)]) if all_topics else {
+        "id": 1, "title": "Technical Concept Explanation", "category": "Technical", "objective": "Explain a concept clearly in English."
+    }
+
+    cursor.execute("""
+        SELECT id, log_date, actual_minutes, shortfall_minutes, completed, is_completed, notes, completed_at
+        FROM daily_english_logs
+        WHERE log_date = ? OR assigned_date = ?
+    """, (target_date, target_date))
+    log = cursor.fetchone()
+
+    # Calculate streak
+    streak = 0
+    cur_d = dt - timedelta(days=1)
+    while True:
+        d_str = cur_d.strftime("%Y-%m-%d")
+        cursor.execute("SELECT completed, is_completed, actual_minutes FROM daily_english_logs WHERE (log_date = ? OR assigned_date = ?) AND (completed = 1 OR is_completed = 1 OR actual_minutes >= 20)", (d_str, d_str))
+        r = cursor.fetchone()
+        if r:
+            streak += 1
+            cur_d -= timedelta(days=1)
+        else:
+            break
+
+    if log and (log["completed"] or log["is_completed"]):
+        streak += 1
+
+    actual_mins = log["actual_minutes"] if log and log["actual_minutes"] is not None else (30 if log and log["completed"] else 0)
+    shortfall = max(0, 30 - actual_mins)
+    is_done = actual_mins >= 30 or (log and bool(log["completed"]))
+
+    return {
+        "date": target_date,
+        "target_minutes": 30,
+        "actual_minutes": actual_mins,
+        "shortfall_minutes": shortfall,
+        "is_completed": is_done,
+        "notes": log["notes"] if log else "",
+        "streak_days": streak,
+        "topic": topic
+    }
+
+def save_english_practice(conn: sqlite3.Connection, log_date: str, actual_minutes: int, notes: str = "") -> Dict[str, Any]:
+    cursor = conn.cursor()
+    shortfall = max(0, 30 - actual_minutes)
+    is_completed = 1 if actual_minutes >= 30 else (1 if actual_minutes > 0 else 0)
+    now_str = datetime.now().isoformat()
+
+    cursor.execute("""
+        INSERT INTO daily_english_logs (assigned_date, log_date, topic_id, duration_seconds, actual_minutes, shortfall_minutes, completed, is_completed, notes, completed_at)
+        VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(assigned_date) DO UPDATE SET
+            actual_minutes = excluded.actual_minutes,
+            shortfall_minutes = excluded.shortfall_minutes,
+            duration_seconds = excluded.duration_seconds,
+            completed = excluded.completed,
+            is_completed = excluded.is_completed,
+            notes = excluded.notes,
+            completed_at = excluded.completed_at
+    """, (log_date, log_date, actual_minutes * 60, actual_minutes, shortfall, is_completed, is_completed, notes, now_str))
+    conn.commit()
+
+    return get_english_status_today(conn, log_date)
+

@@ -201,6 +201,34 @@ class CalendarEventUpdate(BaseModel):
     color: Optional[str] = None
     is_completed: Optional[bool] = None
 
+class WastedTimeLogCreate(BaseModel):
+    log_date: str
+    minutes: int
+    reason: Optional[str] = ""
+    category: str = "Unproductive Time"
+
+class WastedTimeLogModel(BaseModel):
+    id: Optional[int] = None
+    log_date: str
+    minutes: int
+    reason: Optional[str] = None
+    category: str = "Unproductive Time"
+    created_at: Optional[str] = None
+
+class EnglishLogSimpleRequest(BaseModel):
+    log_date: str
+    actual_minutes: int
+    notes: Optional[str] = ""
+
+class DSATopicAssignmentUpdate(BaseModel):
+    status: str # Pending, Attempted, Solved, Needs Revision
+    time_spent_minutes: int = 0
+    notes: Optional[str] = ""
+
+class TopicStatusUpdateRequest(BaseModel):
+    mastery_level: str # NOT_STARTED, IN_PROGRESS, COMPLETED, NEEDS_REVISION, CONFIDENT, MASTERED
+    notes: Optional[str] = None
+
 class TaskCompletionRequest(BaseModel):
     status: str # COMPLETED, PARTIALLY_COMPLETED, MISSED, PENDING
     completion_percentage: int = 100
