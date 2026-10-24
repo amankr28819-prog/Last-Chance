@@ -59,6 +59,7 @@ const API = {
   },
 
   // High-level API methods
+  getTime: () => API.get('/api/time'),
   getDates: () => API.get('/api/dates'),
   getFeasibility: () => API.get('/api/feasibility'),
   getSettings: () => API.get('/api/settings'),
@@ -96,6 +97,37 @@ const API = {
   startSession: (topicId, scheduleId = null) => API.post('/api/sessions/start', { topic_id: topicId, schedule_id: scheduleId }),
   finishSession: (data) => API.post('/api/sessions/finish', data),
 
+  // Daily DSA (2 questions)
+  getDailyDSA: () => API.get('/api/dsa/today'),
+  updateDSAAssignment: (id, data) => API.put(`/api/dsa/assignment/${id}`, data),
+  getAllDSA: () => API.get('/api/dsa/all'),
+
+  // English Speaking (30 min)
+  getEnglishToday: () => API.get('/api/english/today'),
+  saveEnglishLog: (data) => API.post('/api/english/log', data),
+  getEnglishHistory: () => API.get('/api/english/history'),
+
+  // Daily Motivational Quotes
+  getDailyQuote: () => API.get('/api/quotes/today'),
+  toggleQuoteFavorite: (id) => API.post(`/api/quotes/${id}/favorite`, {}),
+  getAllQuotes: () => API.get('/api/quotes/all'),
+
+  // Extra Time Recommendations
+  getExtraTime: () => API.get('/api/extra-time'),
+
+  // Calendar
+  getCalendarEvents: (start = null, end = null) => {
+    let url = '/api/calendar/events';
+    const params = [];
+    if (start) params.push(`start=${start}`);
+    if (end) params.push(`end=${end}`);
+    if (params.length) url += `?${params.join('&')}`;
+    return API.get(url);
+  },
+  createCalendarEvent: (data) => API.post('/api/calendar/events', data),
+  updateCalendarEvent: (id, data) => API.put(`/api/calendar/events/${id}`, data),
+  deleteCalendarEvent: (id) => API.delete(`/api/calendar/events/${id}`),
+
   getAnalytics: () => API.get('/api/analytics'),
   getHistory: () => API.get('/api/history'),
   getRevision: () => API.get('/api/revision'),
@@ -111,4 +143,5 @@ const API = {
   restoreBackup: (data) => API.post('/api/backup/restore', data)
 };
 
+window.LastChanceAPI = API;
 window.StudyPilotAPI = API;

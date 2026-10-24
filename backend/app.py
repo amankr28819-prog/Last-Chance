@@ -13,7 +13,9 @@ from backend.database import get_connection, init_db, get_setting, set_setting, 
 from backend.models import (
     SubjectModel, SubjectUpdateModel, TopicModel, TopicUpdateModel,
     SettingsModel, TaskCompletionRequest, StartSessionRequest, FinishSessionRequest,
-    FeasibilityReport
+    FeasibilityReport, DSAQuestionModel, DSAAssignmentModel, DSAStatusUpdateRequest,
+    EnglishTopicModel, DailyEnglishLogModel, EnglishLogSaveRequest, QuoteModel,
+    CalendarEventModel, CalendarEventCreate, CalendarEventUpdate
 )
 from backend.scheduler import StudyScheduler
 from backend.syllabus_parser import SyllabusParser
@@ -22,9 +24,9 @@ from backend.syllabus_parser import SyllabusParser
 init_db()
 
 app = FastAPI(
-    title="StudyPilot API",
-    description="Your Personal Exam Planning System — Local, Adaptive, Intelligent Semester Examination Planner",
-    version="1.0.0"
+    title="Last Chance API",
+    description="Last Chance — Your Personal Adaptive Academic Study & Exam Planner",
+    version="2.0.0"
 )
 
 app.add_middleware(
@@ -48,11 +50,34 @@ def get_db():
     finally:
         conn.close()
 
-# ----------------- DATE & FEASIBILITY ENDPOINTS -----------------
+# ----------------- DATE, TIME & FEASIBILITY ENDPOINTS -----------------
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "app": "StudyPilot", "version": "1.0.0"}
+    return {"status": "ok", "app": "Last Chance", "version": "2.0.0"}
+
+@app.get("/api/time")
+def get_current_time(conn=Depends(get_db)):
+    """Returns the real, dynamic local time and date for Asia/Kolkata."""
+    now = datetime.now()
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    today = date_info["today"]
+    
+    return {
+        "iso": now.isoformat(),
+        "date_str": today.strftime("%Y-%m-%d"),
+        "time_str": now.strftime("%H:%M:%S"),
+        "formatted_date": today.strftime("%A, %d %B %Y"),
+        "formatted_time": now.strftime("%I:%M:%S %p"),
+        "weekday": today.strftime("%A"),
+        "day": today.day,
+        "month": today.month,
+        "month_name": today.strftime("%B"),
+        "year": today.year,
+        "timezone": get_setting(conn, "time_zone", "Asia/Kolkata"),
+        "simulated": get_setting(conn, "simulated_today", None) is not None
+    }
 
 @app.get("/api/dates")
 def get_date_info(conn=Depends(get_db)):
@@ -76,6 +101,23 @@ def get_all_settings(conn=Depends(get_db)):
             settings[row["key"]] = json.loads(row["value"])
         except (json.JSONDecodeError, TypeError):
             settings[row["key"]] = row["value"]
+
+    # Normalize aliases
+    if "academic_daily_target_minutes" in settings and "daily_academic_target_minutes" not in settings:
+        settings["daily_academic_target_minutes"] = settings["academic_daily_target_minutes"]
+    if "daily_academic_target_minutes" in settings and "academic_daily_target_minutes" not in settings:
+        settings["academic_daily_target_minutes"] = settings["daily_academic_target_minutes"]
+
+    if "english_daily_target_minutes" in settings and "english_speaking_target_minutes" not in settings:
+        settings["english_speaking_target_minutes"] = settings["english_daily_target_minutes"]
+    if "english_speaking_target_minutes" in settings and "english_daily_target_minutes" not in settings:
+        settings["english_daily_target_minutes"] = settings["english_speaking_target_minutes"]
+
+    if "dsa_daily_question_count" in settings and "daily_dsa_count" not in settings:
+        settings["daily_dsa_count"] = settings["dsa_daily_question_count"]
+    if "daily_dsa_count" in settings and "dsa_daily_question_count" not in settings:
+        settings["dsa_daily_question_count"] = settings["daily_dsa_count"]
+
     return settings
 
 @app.put("/api/settings")
@@ -313,15 +355,21 @@ def get_today_schedule(conn=Depends(get_db)):
     available_today = scheduler.get_daily_available_minutes(date_info["today"])
     free_today = max(0, available_today - total_scheduled)
     completion_rate = round((total_completed / total_scheduled * 100), 1) if total_scheduled > 0 else 0.0
+    college_hours_today = scheduler.get_college_hours_for_date(date_info["today"])
 
     feasibility = scheduler.assess_feasibility()
 
     return {
         "date_info": date_info,
         "available_minutes": available_today,
+        "academic_target_minutes": int(get_setting(conn, "daily_academic_target_minutes", 240)),
+        "academic_completed_minutes": total_completed,
         "scheduled_minutes": total_scheduled,
         "remaining_free_minutes": free_today,
         "completion_rate": completion_rate,
+        "college_hours": college_hours_today,
+        "english_target_minutes": int(get_setting(conn, "english_speaking_target_minutes", 30)),
+        "dsa_target_count": int(get_setting(conn, "daily_dsa_count", 2)),
         "tasks": tasks,
         "feasibility": feasibility
     }
@@ -594,6 +642,604 @@ def commit_imported_syllabus(data: Dict[str, Any], conn=Depends(get_db)):
     conn.commit()
     return {"success": True, "subject_id": subject_id, "topics_added": added_topics}
 
+# ----------------- DAILY DSA (2 COMPULSORY QUESTIONS) -----------------
+
+@app.get("/api/dsa/today")
+def get_daily_dsa(conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    today_str = date_info["today_str"]
+    cursor = conn.cursor()
+
+    # Check existing assignments for today
+    cursor.execute("""
+        SELECT a.*, q.title, q.topic, q.difficulty, q.problem_statement, q.concept,
+               q.hint_1, q.hint_2, q.solution_approach, q.solution_code,
+               q.time_complexity, q.space_complexity
+        FROM daily_dsa_assignments a
+        JOIN dsa_questions q ON a.question_id = q.id
+        WHERE a.assigned_date = ?
+        ORDER BY a.slot_number ASC
+    """, (today_str,))
+    rows = cursor.fetchall()
+
+    assignments = [dict(r) for r in rows]
+
+    # If fewer than 2 assigned, assign new questions automatically
+    if len(assignments) < 2:
+        needed = 2 - len(assignments)
+        assigned_ids = [a["question_id"] for a in assignments]
+        # Avoid questions assigned in the past 7 days if possible
+        cursor.execute("""
+            SELECT question_id FROM daily_dsa_assignments
+            WHERE assigned_date >= date(?, '-7 days')
+        """, (today_str,))
+        recent_ids = {r[0] for r in cursor.fetchall()}
+        recent_ids.update(assigned_ids)
+
+        # Candidate questions
+        placeholders = ",".join("?" for _ in recent_ids) if recent_ids else "0"
+        query = f"SELECT id FROM dsa_questions WHERE id NOT IN ({placeholders}) ORDER BY RANDOM() LIMIT ?"
+        params = list(recent_ids) + [needed] if recent_ids else [needed]
+        cursor.execute(query, params)
+        new_q_ids = [r[0] for r in cursor.fetchall()]
+
+        # If not enough unassigned, fall back to any questions not already assigned today
+        if len(new_q_ids) < needed:
+            fallbacks_needed = needed - len(new_q_ids)
+            today_ids = assigned_ids + new_q_ids
+            tb_placeholders = ",".join("?" for _ in today_ids) if today_ids else "0"
+            fb_query = f"SELECT id FROM dsa_questions WHERE id NOT IN ({tb_placeholders}) ORDER BY RANDOM() LIMIT ?"
+            fb_params = list(today_ids) + [fallbacks_needed] if today_ids else [fallbacks_needed]
+            cursor.execute(fb_query, fb_params)
+            new_q_ids.extend([r[0] for r in cursor.fetchall()])
+
+        slot_start = len(assignments) + 1
+        for idx, qid in enumerate(new_q_ids):
+            cursor.execute("""
+                INSERT INTO daily_dsa_assignments (assigned_date, question_id, slot_number, status)
+                VALUES (?, ?, ?, 'Pending')
+            """, (today_str, qid, slot_start + idx))
+
+        conn.commit()
+
+        # Re-fetch assignments
+        cursor.execute("""
+            SELECT a.*, q.title, q.topic, q.difficulty, q.problem_statement, q.concept,
+                   q.hint_1, q.hint_2, q.solution_approach, q.solution_code,
+                   q.time_complexity, q.space_complexity
+            FROM daily_dsa_assignments a
+            JOIN dsa_questions q ON a.question_id = q.id
+            WHERE a.assigned_date = ?
+            ORDER BY a.slot_number ASC
+        """, (today_str,))
+        assignments = [dict(r) for r in cursor.fetchall()]
+
+    solved_count = sum(1 for a in assignments if a["status"] == "Solved")
+    attempted_count = sum(1 for a in assignments if a["status"] in ("Attempted", "Solved"))
+
+    return {
+        "date": today_str,
+        "target_count": 2,
+        "solved_count": solved_count,
+        "attempted_count": attempted_count,
+        "is_completed": solved_count >= 2,
+        "assignments": assignments
+    }
+
+@app.put("/api/dsa/assignment/{assignment_id}")
+def update_dsa_assignment(assignment_id: int, req: DSAStatusUpdateRequest, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    completed_at = datetime.now().isoformat() if req.status == "Solved" else None
+    cursor.execute("""
+        UPDATE daily_dsa_assignments
+        SET status = ?, user_approach = ?, mistakes_notes = ?, time_spent_minutes = ?,
+            completed_at = COALESCE(?, completed_at)
+        WHERE id = ?
+    """, (req.status, req.user_approach, req.mistakes_notes, req.time_spent_minutes, completed_at, assignment_id))
+    conn.commit()
+    return {"success": True}
+
+@app.get("/api/dsa/all")
+def get_all_dsa_questions(conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT q.*,
+               (SELECT status FROM daily_dsa_assignments a WHERE a.question_id = q.id ORDER BY a.assigned_date DESC LIMIT 1) as latest_status,
+               (SELECT COUNT(*) FROM daily_dsa_assignments a WHERE a.question_id = q.id AND a.status = 'Solved') as solve_count
+        FROM dsa_questions q
+        ORDER BY q.topic ASC, q.id ASC
+    """)
+    questions = [dict(r) for r in cursor.fetchall()]
+
+    # Stats
+    cursor.execute("SELECT COUNT(*) FROM dsa_questions")
+    total_q = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(DISTINCT question_id) FROM daily_dsa_assignments WHERE status = 'Solved'")
+    solved_q = cursor.fetchone()[0]
+
+    return {
+        "total_questions": total_q,
+        "unique_solved": solved_q,
+        "questions": questions
+    }
+
+# ----------------- ENGLISH SPEAKING IMPROVEMENT (30 MIN TARGET) -----------------
+
+@app.get("/api/english/today")
+def get_today_english_practice(conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    today = date_info["today"]
+    today_str = date_info["today_str"]
+    cursor = conn.cursor()
+
+    # Get all topics
+    cursor.execute("SELECT * FROM english_speaking_topics ORDER BY id ASC")
+    all_topics = [dict(r) for r in cursor.fetchall()]
+
+    if not all_topics:
+        selected_topic = None
+    else:
+        # Deterministic rotation based on day of year
+        day_of_year = today.timetuple().tm_yday
+        topic_idx = (day_of_year - 1) % len(all_topics)
+        selected_topic = all_topics[topic_idx]
+        try:
+            selected_topic["vocabulary"] = json.loads(selected_topic.get("vocabulary") or "[]")
+        except Exception:
+            selected_topic["vocabulary"] = []
+        try:
+            selected_topic["speaking_prompts"] = json.loads(selected_topic.get("speaking_prompts") or "[]")
+        except Exception:
+            selected_topic["speaking_prompts"] = []
+
+    # Get today's log if any
+    cursor.execute("SELECT * FROM daily_english_logs WHERE log_date = ?", (today_str,))
+    log_row = cursor.fetchone()
+    log_data = dict(log_row) if log_row else {
+        "log_date": today_str,
+        "topic_id": selected_topic["id"] if selected_topic else None,
+        "time_spent_seconds": 0,
+        "is_completed": False,
+        "notes": "",
+        "completed_at": None
+    }
+
+    # Calculate streak (consecutive days completed up to today or yesterday)
+    cursor.execute("""
+        SELECT log_date FROM daily_english_logs
+        WHERE is_completed = 1
+        ORDER BY log_date DESC
+    """)
+    completed_dates = {r[0] for r in cursor.fetchall()}
+    streak = 0
+    check_date = today
+    if today_str not in completed_dates:
+        check_date = today - timedelta(days=1)
+    
+    while check_date.strftime("%Y-%m-%d") in completed_dates:
+        streak += 1
+        check_date -= timedelta(days=1)
+
+    return {
+        "date": today_str,
+        "target_minutes": int(get_setting(conn, "english_speaking_target_minutes", 30)),
+        "streak_days": streak,
+        "topic": selected_topic,
+        "log": log_data,
+        "all_topics_count": len(all_topics)
+    }
+
+@app.post("/api/english/log")
+def save_english_log(req: EnglishLogSaveRequest, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    completed_at = datetime.now().isoformat() if req.is_completed else None
+    
+    cursor.execute("SELECT id FROM daily_english_logs WHERE log_date = ?", (req.log_date,))
+    existing = cursor.fetchone()
+    if existing:
+        cursor.execute("""
+            UPDATE daily_english_logs
+            SET topic_id = ?, time_spent_seconds = ?, is_completed = ?, notes = ?,
+                completed_at = COALESCE(?, completed_at)
+            WHERE log_date = ?
+        """, (req.topic_id, req.time_spent_seconds, int(req.is_completed), req.notes, completed_at, req.log_date))
+    else:
+        cursor.execute("""
+            INSERT INTO daily_english_logs (log_date, topic_id, time_spent_seconds, is_completed, notes, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (req.log_date, req.topic_id, req.time_spent_seconds, int(req.is_completed), req.notes, completed_at))
+
+    conn.commit()
+    return {"success": True}
+
+@app.get("/api/english/history")
+def get_english_history(conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT l.*, t.title as topic_title, t.category as topic_category
+        FROM daily_english_logs l
+        LEFT JOIN english_speaking_topics t ON l.topic_id = t.id
+        ORDER BY l.log_date DESC
+        LIMIT 30
+    """)
+    logs = [dict(r) for r in cursor.fetchall()]
+    return {"history": logs}
+
+# ----------------- DAILY MOTIVATIONAL QUOTE -----------------
+
+@app.get("/api/quotes/today")
+def get_today_quote(conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    today = date_info["today"]
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM daily_quotes ORDER BY id ASC")
+    quotes = [dict(r) for r in cursor.fetchall()]
+    if not quotes:
+        return {"quote": {"id": 1, "quote_text": "Consistency turns average effort into excellence.", "author": "Anonymous", "category": "Consistency", "is_favorite": 0}}
+
+    day_of_year = today.timetuple().tm_yday
+    idx = (day_of_year - 1) % len(quotes)
+    selected = quotes[idx]
+
+    return {
+        "date": date_info["today_str"],
+        "quote": selected
+    }
+
+@app.post("/api/quotes/{quote_id}/favorite")
+def toggle_quote_favorite(quote_id: int, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("UPDATE daily_quotes SET is_favorite = 1 - is_favorite WHERE id = ?", (quote_id,))
+    conn.commit()
+    cursor.execute("SELECT is_favorite FROM daily_quotes WHERE id = ?", (quote_id,))
+    row = cursor.fetchone()
+    return {"success": True, "is_favorite": bool(row[0]) if row else False}
+
+@app.get("/api/quotes/all")
+def get_all_quotes(conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM daily_quotes ORDER BY category ASC, id ASC")
+    return {"quotes": [dict(r) for r in cursor.fetchall()]}
+
+# ----------------- HAVE EXTRA TIME? DO THIS NEXT -----------------
+
+@app.get("/api/extra-time")
+def get_extra_time_recommendations(conn=Depends(get_db)):
+    """Generates intelligent, workload-aware optional recommendations.
+    Never marks optional tasks as compulsory.
+    Explains the rationale for each recommendation.
+    """
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    today_str = date_info["today_str"]
+    cursor = conn.cursor()
+
+    recommendations = []
+
+    # 1. Check for overdue / missed tasks from previous days
+    cursor.execute("""
+        SELECT sc.id, sc.scheduled_date, sc.duration_minutes, t.title as topic_title,
+               s.name as subject_name, s.color as subject_color
+        FROM study_schedules sc
+        JOIN topics t ON sc.topic_id = t.id
+        JOIN subjects s ON sc.subject_id = s.id
+        WHERE sc.scheduled_date < ? AND sc.status IN ('PENDING', 'MISSED', 'PARTIALLY_COMPLETED')
+        ORDER BY sc.scheduled_date ASC
+        LIMIT 2
+    """, (today_str,))
+    for r in cursor.fetchall():
+        recommendations.append({
+            "title": f"Complete Overdue: {r['topic_title']} ({r['subject_name']})",
+            "category": "Overdue Catch-up",
+            "estimated_minutes": min(45, r["duration_minutes"]),
+            "reason": f"Scheduled on {r['scheduled_date']} but was not fully completed. Catching up prevents syllabus backlog.",
+            "action_type": "STUDY_TASK",
+            "target_id": r["id"],
+            "color": r["subject_color"]
+        })
+
+    # 2. Check weak topics needing revision
+    cursor.execute("""
+        SELECT t.id, t.title, t.mastery_level, s.name as subject_name, s.color as subject_color
+        FROM topics t
+        JOIN subjects s ON t.subject_id = s.id
+        WHERE t.mastery_level IN ('NEEDS_REVISION', 'PARTIALLY_UNDERSTOOD')
+        ORDER BY RANDOM()
+        LIMIT 2
+    """, ())
+    for r in cursor.fetchall():
+        recommendations.append({
+            "title": f"Revisit Weak Topic: {r['title']} ({r['subject_name']})",
+            "category": "Revision & Mastery",
+            "estimated_minutes": 30,
+            "reason": f"Marked as '{r['mastery_level']}'. A 30-minute focused review solidifies understanding before exam crunch.",
+            "action_type": "TOPIC_REVIEW",
+            "target_id": r["id"],
+            "color": r["subject_color"]
+        })
+
+    # 3. Check DSA daily completion
+    cursor.execute("""
+        SELECT COUNT(*) FROM daily_dsa_assignments
+        WHERE assigned_date = ? AND status = 'Solved'
+    """, (today_str,))
+    dsa_solved = cursor.fetchone()[0]
+    if dsa_solved < 2:
+        recommendations.append({
+            "title": "Solve Today's Compulsory DSA Questions",
+            "category": "Daily DSA",
+            "estimated_minutes": 30,
+            "reason": f"You have solved {dsa_solved} of 2 required questions for today. Completing these builds algorithmic consistency.",
+            "action_type": "DSA_NAV",
+            "target_id": None,
+            "color": "#10b981"
+        })
+    else:
+        # Suggest bonus DSA problem
+        recommendations.append({
+            "title": "Bonus DSA Practice: Solve an Extra Problem",
+            "category": "Bonus DSA",
+            "estimated_minutes": 25,
+            "reason": "You've finished your daily 2 questions! Doing one extra question from Trees or Graphs strengthens interview readiness.",
+            "action_type": "DSA_BONUS",
+            "target_id": None,
+            "color": "#10b981"
+        })
+
+    # 4. Check English speaking completion
+    cursor.execute("""
+        SELECT is_completed FROM daily_english_logs WHERE log_date = ?
+    """, (today_str,))
+    eng_row = cursor.fetchone()
+    if not eng_row or not eng_row[0]:
+        recommendations.append({
+            "title": "Complete 30-Minute English Speaking Drill",
+            "category": "English Fluency",
+            "estimated_minutes": 30,
+            "reason": "English practice target has not been completed today. Practice builds confidence in technical interviews and presentations.",
+            "action_type": "ENGLISH_NAV",
+            "target_id": None,
+            "color": "#f59e0b"
+        })
+
+    # 5. Review mistake notes
+    cursor.execute("""
+        SELECT mistakes_notes FROM daily_dsa_assignments
+        WHERE mistakes_notes IS NOT NULL AND mistakes_notes != ''
+        ORDER BY assigned_date DESC LIMIT 1
+    """)
+    mistake_row = cursor.fetchone()
+    if mistake_row:
+        recommendations.append({
+            "title": "Review Previous DSA Mistakes & Edge Cases",
+            "category": "Mistake Analysis",
+            "estimated_minutes": 15,
+            "reason": "Reviewing past errors prevents making the same missteps in actual exams or coding rounds.",
+            "action_type": "MISTAKE_REVIEW",
+            "target_id": None,
+            "color": "#8b5cf6"
+        })
+
+    return {
+        "date": today_str,
+        "recommendations": recommendations[:5]
+    }
+
+# ----------------- STUDY CALENDAR & CUSTOM EVENTS -----------------
+
+@app.get("/api/calendar/events")
+def get_calendar_events(start: Optional[str] = None, end: Optional[str] = None, conn=Depends(get_db)):
+    """Comprehensive calendar feed:
+    - Study sessions from study_schedules
+    - College class commitments
+    - Subject exam dates
+    - Special breaks
+    - Custom user events
+    """
+    scheduler = StudyScheduler(conn)
+    date_info = scheduler.calculate_dates()
+    today = date_info["today"]
+
+    if not start:
+        start_date = today - timedelta(days=30)
+    else:
+        try:
+            start_date = datetime.strptime(start, "%Y-%m-%d").date()
+        except ValueError:
+            start_date = today - timedelta(days=30)
+
+    if not end:
+        end_date = today + timedelta(days=60)
+    else:
+        try:
+            end_date = datetime.strptime(end, "%Y-%m-%d").date()
+        except ValueError:
+            end_date = today + timedelta(days=60)
+
+    start_str = start_date.strftime("%Y-%m-%d")
+    end_str = end_date.strftime("%Y-%m-%d")
+    cursor = conn.cursor()
+
+    events = []
+
+    # 1. Scheduled study sessions
+    cursor.execute("""
+        SELECT sc.id, sc.scheduled_date, sc.duration_minutes, sc.planned_start_time,
+               sc.status, sc.task_type, t.title as topic_title,
+               s.name as subject_name, s.code as subject_code, s.color as subject_color
+        FROM study_schedules sc
+        JOIN topics t ON sc.topic_id = t.id
+        JOIN subjects s ON sc.subject_id = s.id
+        WHERE sc.scheduled_date >= ? AND sc.scheduled_date <= ?
+        ORDER BY sc.scheduled_date ASC, sc.id ASC
+    """, (start_str, end_str))
+    
+    for r in cursor.fetchall():
+        events.append({
+            "id": f"study_{r['id']}",
+            "source_id": r["id"],
+            "title": f"[{r['subject_code']}] {r['topic_title']}",
+            "description": f"{r['task_type']} • {r['duration_minutes']} mins • Status: {r['status']}",
+            "event_date": r["scheduled_date"],
+            "start_time": r["planned_start_time"] or "18:00",
+            "duration_minutes": r["duration_minutes"],
+            "event_type": "study",
+            "subject_code": r["subject_code"],
+            "color": r["subject_color"],
+            "status": r["status"],
+            "is_completed": r["status"] == "COMPLETED"
+        })
+
+    # 2. Subject exam milestones
+    cursor.execute("SELECT id, code, name, exam_date, color FROM subjects WHERE exam_date IS NOT NULL")
+    for s in cursor.fetchall():
+        if s["exam_date"] and start_str <= s["exam_date"] <= end_str:
+            events.append({
+                "id": f"exam_{s['id']}",
+                "source_id": s["id"],
+                "title": f"EXAM: {s['code']} — {s['name']}",
+                "description": f"End-Semester Examination for {s['name']}",
+                "event_date": s["exam_date"],
+                "start_time": "09:30",
+                "duration_minutes": 180,
+                "event_type": "exam",
+                "subject_code": s["code"],
+                "color": "#ef4444",
+                "status": "UPCOMING",
+                "is_completed": False
+            })
+
+    # 3. Special Holiday Break (6-11 Dec / 12 Dec)
+    break_start_str = get_setting(conn, "special_break_start", "2026-12-06")
+    break_end_str = get_setting(conn, "special_break_end", "2026-12-11")
+    include_7th = get_setting(conn, "special_break_include_7th_day", False)
+    if include_7th and break_end_str == "2026-12-11":
+        break_end_str = "2026-12-12"
+
+    try:
+        b_curr = datetime.strptime(break_start_str, "%Y-%m-%d").date()
+        b_end = datetime.strptime(break_end_str, "%Y-%m-%d").date()
+        while b_curr <= b_end:
+            b_str = b_curr.strftime("%Y-%m-%d")
+            if start_str <= b_str <= end_str:
+                events.append({
+                    "id": f"break_{b_str}",
+                    "source_id": None,
+                    "title": "Special Holiday Break (College Off)",
+                    "description": "Configured holiday period: college classes are suspended.",
+                    "event_date": b_str,
+                    "start_time": "00:00",
+                    "duration_minutes": 0,
+                    "event_type": "holiday",
+                    "subject_code": None,
+                    "color": "#8b5cf6",
+                    "status": "BREAK",
+                    "is_completed": True
+                })
+            b_curr += timedelta(days=1)
+    except Exception:
+        pass
+
+    # 4. Custom calendar events from calendar_events table
+    cursor.execute("""
+        SELECT * FROM calendar_events
+        WHERE event_date >= ? AND event_date <= ?
+        ORDER BY event_date ASC, start_time ASC
+    """, (start_str, end_str))
+    for ce in cursor.fetchall():
+        events.append({
+            "id": f"custom_{ce['id']}",
+            "source_id": ce["id"],
+            "title": ce["title"],
+            "description": ce.get("description", ""),
+            "event_date": ce["event_date"],
+            "start_time": ce.get("start_time") or "10:00",
+            "end_time": ce.get("end_time"),
+            "duration_minutes": 60,
+            "event_type": ce.get("event_type", "personal"),
+            "subject_code": ce.get("subject_code"),
+            "color": ce.get("color") or "#3b82f6",
+            "status": "COMPLETED" if ce.get("is_completed") else "PENDING",
+            "is_completed": bool(ce.get("is_completed"))
+        })
+
+    # 5. College commitments for dates in range (unless break or blocked)
+    # Generate college class indicators for Mon-Fri
+    working_days = get_setting(conn, "working_days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+    college_wh = float(get_setting(conn, "college_working_day_hours", 3.0))
+    d_curr = start_date
+    while d_curr <= end_date:
+        d_str = d_curr.strftime("%Y-%m-%d")
+        w_name = d_curr.strftime("%A")
+        # If in special break, skip college classes
+        if not (break_start_str <= d_str <= break_end_str):
+            if w_name in working_days and college_wh > 0:
+                events.append({
+                    "id": f"college_{d_str}",
+                    "source_id": None,
+                    "title": f"College Classes ({college_wh:.0f} hrs)",
+                    "description": f"Scheduled college classes: {college_wh:.1f} hours",
+                    "event_date": d_str,
+                    "start_time": "09:00",
+                    "duration_minutes": int(college_wh * 60),
+                    "event_type": "college",
+                    "subject_code": None,
+                    "color": "#64748b",
+                    "status": "SCHEDULED",
+                    "is_completed": d_curr < today
+                })
+        d_curr += timedelta(days=1)
+
+    return {"events": events}
+
+@app.post("/api/calendar/events")
+def create_calendar_event(event: CalendarEventCreate, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO calendar_events (title, description, event_date, start_time, end_time, event_type, subject_code, color, is_completed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (event.title, event.description, event.event_date, event.start_time, event.end_time, event.event_type, event.subject_code, event.color, int(event.is_completed)))
+    conn.commit()
+    return {"success": True, "id": cursor.lastrowid}
+
+@app.put("/api/calendar/events/{event_id}")
+def update_calendar_event(event_id: int, event: CalendarEventUpdate, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM calendar_events WHERE id = ?", (event_id,))
+    existing = cursor.fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    title = event.title if event.title is not None else existing["title"]
+    description = event.description if event.description is not None else existing["description"]
+    event_date = event.event_date if event.event_date is not None else existing["event_date"]
+    start_time = event.start_time if event.start_time is not None else existing["start_time"]
+    end_time = event.end_time if event.end_time is not None else existing["end_time"]
+    event_type = event.event_type if event.event_type is not None else existing["event_type"]
+    subject_code = event.subject_code if event.subject_code is not None else existing["subject_code"]
+    color = event.color if event.color is not None else existing["color"]
+    is_completed = int(event.is_completed) if event.is_completed is not None else existing["is_completed"]
+
+    cursor.execute("""
+        UPDATE calendar_events
+        SET title = ?, description = ?, event_date = ?, start_time = ?, end_time = ?,
+            event_type = ?, subject_code = ?, color = ?, is_completed = ?
+        WHERE id = ?
+    """, (title, description, event_date, start_time, end_time, event_type, subject_code, color, is_completed, event_id))
+    conn.commit()
+    return {"success": True}
+
+@app.delete("/api/calendar/events/{event_id}")
+def delete_calendar_event(event_id: int, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
+    conn.commit()
+    return {"success": True}
+
 # ----------------- BACKUP & RESTORE -----------------
 
 @app.get("/api/backup/export")
@@ -615,9 +1261,22 @@ def export_backup(conn=Depends(get_db)):
     schedules = [dict(r) for r in cursor.fetchall()]
     cursor.execute("SELECT * FROM study_sessions")
     sessions = [dict(r) for r in cursor.fetchall()]
+    cursor.execute("SELECT * FROM dsa_questions")
+    dsa_questions = [dict(r) for r in cursor.fetchall()]
+    cursor.execute("SELECT * FROM daily_dsa_assignments")
+    dsa_assignments = [dict(r) for r in cursor.fetchall()]
+    cursor.execute("SELECT * FROM english_speaking_topics")
+    english_topics = [dict(r) for r in cursor.fetchall()]
+    cursor.execute("SELECT * FROM daily_english_logs")
+    english_logs = [dict(r) for r in cursor.fetchall()]
+    cursor.execute("SELECT * FROM daily_quotes")
+    quotes = [dict(r) for r in cursor.fetchall()]
+    cursor.execute("SELECT * FROM calendar_events")
+    calendar_events = [dict(r) for r in cursor.fetchall()]
 
     backup_data = {
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "app": "Last Chance",
         "exported_at": datetime.now().isoformat(),
         "subjects": subjects,
         "units": units,
@@ -626,7 +1285,13 @@ def export_backup(conn=Depends(get_db)):
         "prerequisites": prereqs,
         "settings": settings,
         "study_schedules": schedules,
-        "study_sessions": sessions
+        "study_sessions": sessions,
+        "dsa_questions": dsa_questions,
+        "daily_dsa_assignments": dsa_assignments,
+        "english_speaking_topics": english_topics,
+        "daily_english_logs": english_logs,
+        "daily_quotes": quotes,
+        "calendar_events": calendar_events
     }
     return backup_data
 
@@ -636,7 +1301,12 @@ def restore_backup(data: Dict[str, Any], conn=Depends(get_db)):
     try:
         cursor.execute("PRAGMA foreign_keys = OFF;")
         # Clear tables
-        for tbl in ["study_sessions", "study_schedules", "revision_items", "prerequisites", "subtopics", "topics", "units", "subjects", "settings"]:
+        tables_to_clear = [
+            "calendar_events", "daily_english_logs", "daily_dsa_assignments",
+            "study_sessions", "study_schedules", "revision_items", "prerequisites",
+            "subtopics", "topics", "units", "subjects", "settings"
+        ]
+        for tbl in tables_to_clear:
             cursor.execute(f"DELETE FROM {tbl}")
         
         for s in data.get("subjects", []):
@@ -662,9 +1332,27 @@ def restore_backup(data: Dict[str, Any], conn=Depends(get_db)):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (sc["id"], sc["scheduled_date"], sc["topic_id"], sc["subject_id"], sc["duration_minutes"], sc.get("planned_start_time"), sc["status"], sc["task_type"], sc["priority"], sc.get("learning_objectives"), sc.get("suggested_breakdown"), sc.get("study_method"), sc.get("actual_minutes", 0), sc.get("completion_percentage", 0), sc.get("confidence_rating", 0), sc.get("notes"), sc.get("blockers"), sc.get("practice_attempted", 0), sc.get("completed_at"), sc.get("reasoning")))
 
+        for dsa in data.get("daily_dsa_assignments", []):
+            cursor.execute("""
+                INSERT INTO daily_dsa_assignments (id, assigned_date, question_id, slot_number, status, user_approach, time_spent_minutes, mistakes_notes, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (dsa["id"], dsa["assigned_date"], dsa["question_id"], dsa["slot_number"], dsa["status"], dsa.get("user_approach"), dsa.get("time_spent_minutes", 0), dsa.get("mistakes_notes"), dsa.get("completed_at")))
+
+        for eng in data.get("daily_english_logs", []):
+            cursor.execute("""
+                INSERT INTO daily_english_logs (id, log_date, topic_id, time_spent_seconds, is_completed, notes, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (eng["id"], eng["log_date"], eng.get("topic_id"), eng.get("time_spent_seconds", 0), eng.get("is_completed", 0), eng.get("notes"), eng.get("completed_at")))
+
+        for ce in data.get("calendar_events", []):
+            cursor.execute("""
+                INSERT INTO calendar_events (id, title, description, event_date, start_time, end_time, event_type, subject_code, color, is_completed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (ce["id"], ce["title"], ce.get("description"), ce["event_date"], ce.get("start_time"), ce.get("end_time"), ce.get("event_type", "personal"), ce.get("subject_code"), ce.get("color"), ce.get("is_completed", 0)))
+
         cursor.execute("PRAGMA foreign_keys = ON;")
         conn.commit()
-        return {"success": True, "message": "Backup restored successfully."}
+        return {"success": True, "message": "Last Chance backup restored successfully."}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to restore backup: {str(e)}")

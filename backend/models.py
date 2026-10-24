@@ -74,10 +74,21 @@ class SettingsModel(BaseModel):
     syllabus_deadline: str = "2026-11-19"
     revision_buffer_days: int = 7
     is_buffer_mandatory: bool = True
-    weekday_minutes: int = 180
-    weekend_minutes: int = 300
-    college_hours: str = "09:00 - 16:00"
-    commute_minutes: int = 60
+    daily_academic_target_minutes: int = 240  # 4 hours
+    english_speaking_target_minutes: int = 30  # 30 minutes
+    daily_dsa_count: int = 2  # 2 questions
+    working_days: List[str] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    weekly_holidays: List[str] = ["Saturday", "Sunday"]
+    college_working_day_hours: float = 3.0
+    college_holiday_hours: float = 5.0
+    special_break_start: str = "2026-12-06"
+    special_break_end: str = "2026-12-11"
+    special_break_warning: str = "Note: 6 Dec to 11 Dec contains 6 calendar days, not 7."
+    special_break_include_7th_day: bool = False
+    weekday_minutes: int = 240
+    weekend_minutes: int = 240
+    college_hours: str = "09:00 - 12:00"
+    commute_minutes: int = 30
     sleep_hours: str = "23:30 - 06:30"
     study_windows: List[StudyWindowModel] = []
     blocked_dates: List[str] = []
@@ -85,12 +96,110 @@ class SettingsModel(BaseModel):
     max_consecutive_minutes: int = 90
     break_duration: int = 15
     subjects_per_day: int = 2
-    study_style: str = "INTERLEAVED" # INTERLEAVED or DEEP_DIVE
+    study_style: str = "INTERLEAVED"  # INTERLEAVED or DEEP_DIVE
     daily_practice: bool = True
     spaced_revision: bool = True
     onboarding_completed: bool = False
     theme: str = "dark"
     time_zone: str = "Asia/Kolkata"
+
+class DSAQuestionModel(BaseModel):
+    id: Optional[int] = None
+    title: str
+    topic: str
+    difficulty: str = "Medium"
+    problem_statement: str
+    concept: Optional[str] = None
+    hint_1: Optional[str] = None
+    hint_2: Optional[str] = None
+    solution_approach: Optional[str] = None
+    solution_code: Optional[str] = None
+    time_complexity: Optional[str] = None
+    space_complexity: Optional[str] = None
+
+class DSAAssignmentModel(BaseModel):
+    id: Optional[int] = None
+    assigned_date: str
+    question_id: int
+    slot_number: int = 1
+    status: str = "Pending"  # Pending, Attempted, Solved, Needs Revision
+    user_approach: Optional[str] = None
+    time_spent_minutes: int = 0
+    mistakes_notes: Optional[str] = None
+    completed_at: Optional[str] = None
+    question: Optional[DSAQuestionModel] = None
+
+class DSAStatusUpdateRequest(BaseModel):
+    status: str  # Attempted, Solved, Needs Revision, Pending
+    user_approach: Optional[str] = None
+    mistakes_notes: Optional[str] = None
+    time_spent_minutes: int = 0
+
+class EnglishTopicModel(BaseModel):
+    id: Optional[int] = None
+    category: str
+    title: str
+    objective: str
+    vocabulary: List[str] = []
+    speaking_prompts: List[str] = []
+
+class DailyEnglishLogModel(BaseModel):
+    id: Optional[int] = None
+    log_date: str
+    topic_id: Optional[int] = None
+    time_spent_seconds: int = 0
+    is_completed: bool = False
+    notes: Optional[str] = None
+    completed_at: Optional[str] = None
+    topic: Optional[EnglishTopicModel] = None
+
+class EnglishLogSaveRequest(BaseModel):
+    log_date: str
+    topic_id: Optional[int] = None
+    time_spent_seconds: int
+    is_completed: bool
+    notes: Optional[str] = None
+
+class QuoteModel(BaseModel):
+    id: Optional[int] = None
+    quote_text: str
+    author: Optional[str] = "Unknown"
+    category: str
+    is_favorite: bool = False
+
+class CalendarEventModel(BaseModel):
+    id: Optional[int] = None
+    title: str
+    description: Optional[str] = None
+    event_date: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    event_type: str = "study"  # study, college, holiday, exam, personal
+    subject_code: Optional[str] = None
+    color: Optional[str] = None
+    is_completed: bool = False
+
+class CalendarEventCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    event_date: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    event_type: str = "study"
+    subject_code: Optional[str] = None
+    color: Optional[str] = None
+    is_completed: bool = False
+
+class CalendarEventUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    event_date: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    event_type: Optional[str] = None
+    subject_code: Optional[str] = None
+    color: Optional[str] = None
+    is_completed: Optional[bool] = None
 
 class TaskCompletionRequest(BaseModel):
     status: str # COMPLETED, PARTIALLY_COMPLETED, MISSED, PENDING

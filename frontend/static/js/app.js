@@ -1,60 +1,86 @@
-// StudyPilot — Your Personal Exam Planning System
-// Modern, Local-first, Deterministic, Adaptive Frontend Application
+// Last Chance — Personal Study Planner & Exam Preparation System
+// Local-First, High-Contrast Accessible Design System
 const { useState, useEffect, useMemo, useRef } = React;
 
 function App() {
-  const [activeTab, setActiveTab] = useState('today');
-  const [theme, setTheme] = useState(localStorage.getItem('studypilot_theme') || 'dark');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [theme, setTheme] = useState(localStorage.getItem('lastchance_theme') || 'dark');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
   // Core Data States
+  const [timeData, setTimeData] = useState(null);
   const [dates, setDates] = useState(null);
   const [feasibility, setFeasibility] = useState(null);
   const [settings, setSettings] = useState(null);
   const [subjects, setSubjects] = useState([]);
   const [todaySchedule, setTodaySchedule] = useState(null);
+  const [todayQuote, setTodayQuote] = useState(null);
+  const [dailyDSA, setDailyDSA] = useState(null);
+  const [englishToday, setEnglishToday] = useState(null);
 
   // Focus Session Modal State
   const [focusSessionTask, setFocusSessionTask] = useState(null);
   const [isFocusModalOpen, setIsFocusModalOpen] = useState(false);
-
-  // Onboarding State
-  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
+  // Synchronize Theme
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('studypilot_theme', theme);
+    localStorage.setItem('lastchance_theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
 
+  // Clock Update (Ticking every second)
+  useEffect(() => {
+    const fetchTime = async () => {
+      try {
+        const t = await window.LastChanceAPI.getTime();
+        setTimeData(t);
+      } catch (e) {
+        // Fallback local clock
+        const now = new Date();
+        setTimeData({
+          formatted_date: now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+          formatted_time: now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+          date_str: now.toISOString().split('T')[0],
+          timezone: 'Asia/Kolkata'
+        });
+      }
+    };
+    fetchTime();
+    const interval = setInterval(fetchTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [dInfo, fInfo, stg, subjs, tSched] = await Promise.all([
-        window.StudyPilotAPI.getDates(),
-        window.StudyPilotAPI.getFeasibility(),
-        window.StudyPilotAPI.getSettings(),
-        window.StudyPilotAPI.getSubjects(),
-        window.StudyPilotAPI.getTodaySchedule()
+      const [dInfo, fInfo, stg, subjs, tSched, quote, dsa, eng] = await Promise.all([
+        window.LastChanceAPI.getDates(),
+        window.LastChanceAPI.getFeasibility(),
+        window.LastChanceAPI.getSettings(),
+        window.LastChanceAPI.getSubjects(),
+        window.LastChanceAPI.getTodaySchedule(),
+        window.LastChanceAPI.getDailyQuote().catch(() => null),
+        window.LastChanceAPI.getDailyDSA().catch(() => null),
+        window.LastChanceAPI.getEnglishToday().catch(() => null)
       ]);
       setDates(dInfo);
       setFeasibility(fInfo);
       setSettings(stg);
       setSubjects(subjs);
       setTodaySchedule(tSched);
-
-      if (!stg.onboarding_completed) {
-        setShowOnboarding(true);
-      }
+      if (quote) setTodayQuote(quote.quote);
+      if (dsa) setDailyDSA(dsa);
+      if (eng) setEnglishToday(eng);
     } catch (err) {
       console.error(err);
       showToast('Failed to load initial data: ' + err.message, 'error');
@@ -69,16 +95,22 @@ function App() {
 
   const refreshAll = async () => {
     try {
-      const [dInfo, fInfo, subjs, tSched] = await Promise.all([
-        window.StudyPilotAPI.getDates(),
-        window.StudyPilotAPI.getFeasibility(),
-        window.StudyPilotAPI.getSubjects(),
-        window.StudyPilotAPI.getTodaySchedule()
+      const [dInfo, fInfo, subjs, tSched, quote, dsa, eng] = await Promise.all([
+        window.LastChanceAPI.getDates(),
+        window.LastChanceAPI.getFeasibility(),
+        window.LastChanceAPI.getSubjects(),
+        window.LastChanceAPI.getTodaySchedule(),
+        window.LastChanceAPI.getDailyQuote().catch(() => null),
+        window.LastChanceAPI.getDailyDSA().catch(() => null),
+        window.LastChanceAPI.getEnglishToday().catch(() => null)
       ]);
       setDates(dInfo);
       setFeasibility(fInfo);
       setSubjects(subjs);
       setTodaySchedule(tSched);
+      if (quote) setTodayQuote(quote.quote);
+      if (dsa) setDailyDSA(dsa);
+      if (eng) setEnglishToday(eng);
     } catch (err) {
       console.error(err);
     }
@@ -86,223 +118,292 @@ function App() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
+      <div className="flex flex-col items-center justify-center min-h-screen space-y-4" style={{ backgroundColor: 'var(--bg-page)', color: 'var(--text-primary)' }}>
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-sm font-medium tracking-wide text-slate-400">Initializing StudyPilot Personal Planner...</p>
+        <p className="text-sm font-semibold tracking-wide" style={{ color: 'var(--text-muted)' }}>Loading Last Chance Study Planner...</p>
       </div>
     );
   }
 
+  // 11 Main Navigation Items
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: '⚡' },
+    { id: 'calendar', label: 'Study Calendar', icon: '🗓️' },
+    { id: 'courses', label: 'Courses & Units', icon: '📚' },
+    { id: 'dsa', label: 'Daily DSA', icon: '💻' },
+    { id: 'english', label: 'English Speaking', icon: '🗣️' },
+    { id: 'revision', label: 'Revision Planner', icon: '🔄' },
+    { id: 'extra_time', label: 'Extra Time', icon: '⭐' },
+    { id: 'analytics', label: 'Progress & Analytics', icon: '📊' },
+    { id: 'history', label: 'Study History', icon: '📜' },
+    { id: 'import', label: 'Handout Import', icon: '📥' },
+    { id: 'settings', label: 'Settings', icon: '⚙️' }
+  ];
+
   return (
-    <div className="min-h-screen flex flex-col bg-primary text-primary transition-smooth">
+    <div className="min-h-screen flex flex-col md:flex-row" style={{ backgroundColor: 'var(--bg-page)', color: 'var(--text-primary)' }}>
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg border text-sm flex items-center space-x-3 transition-smooth ${
-          toast.type === 'error' ? 'bg-rose-950/90 text-rose-200 border-rose-800' :
-          toast.type === 'success' ? 'bg-emerald-950/90 text-emerald-200 border-emerald-800' :
-          'bg-slate-900/90 text-slate-200 border-slate-700'
+          toast.type === 'error' ? 'badge-error' :
+          toast.type === 'success' ? 'badge-success' : 'badge-info'
         }`}>
-          <span>{toast.message}</span>
+          <span>{toast.type === 'error' ? '⚠️' : toast.type === 'success' ? '✓' : 'ℹ️'}</span>
+          <span className="font-semibold">{toast.message}</span>
         </div>
       )}
 
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 border-b border-subtle glass-panel px-6 py-3.5 flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-md">
-            <span className="font-bold text-white text-base tracking-wider">SP</span>
-          </div>
+      {/* Sidebar Navigation */}
+      <aside className="w-full md:w-64 shrink-0 flex flex-col border-r" style={{ backgroundColor: 'var(--bg-sidebar)', borderColor: 'var(--border-color)' }}>
+        {/* Branding */}
+        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
           <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="font-bold text-base tracking-tight">StudyPilot</h1>
-              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                Semester Prep
+            <div className="flex items-center space-x-2.5">
+              <span className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-extrabold text-lg shadow-sm">
+                LC
               </span>
+              <h1 className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                Last Chance
+              </h1>
             </div>
-            <p className="text-xs text-muted">Adaptive Exam Planning & Syllabus Coverage</p>
+            <p className="text-[11px] font-medium mt-1" style={{ color: 'var(--text-muted)' }}>
+              Personal Academic Study Planner
+            </p>
           </div>
         </div>
 
-        {/* Status / Feasibility Pill */}
-        {feasibility && (
-          <div className="hidden md:flex items-center space-x-3">
-            <div className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center space-x-2 border ${
-              feasibility.status_label === 'ON_TRACK' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-              feasibility.status_label === 'TIGHT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
-              'bg-rose-500/10 text-rose-400 border-rose-500/30 animate-subtle-pulse'
-            }`}>
-              <span className={`w-2 h-2 rounded-full ${
-                feasibility.status_label === 'ON_TRACK' ? 'bg-emerald-400' :
-                feasibility.status_label === 'TIGHT' ? 'bg-amber-400' : 'bg-rose-400'
-              }`}></span>
-              <span>{feasibility.status_label.replace('_', ' ')}: {feasibility.capacity_utilization_percent}% Used</span>
-            </div>
+        {/* Navigation Links */}
+        <nav className="p-3 space-y-1 flex-1 overflow-y-auto">
+          {navItems.map(item => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-smooth text-left ${
+                  isActive
+                    ? 'shadow-sm'
+                    : 'hover:bg-slate-800/10'
+                }`}
+                style={{
+                  backgroundColor: isActive ? 'var(--btn-primary-bg)' : 'transparent',
+                  color: isActive ? '#ffffff' : 'var(--text-secondary)'
+                }}
+              >
+                <span className="text-base">{item.icon}</span>
+                <span className="flex-1">{item.label}</span>
+                {item.id === 'dsa' && dailyDSA && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                    dailyDSA.solved_count >= 2 ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-200'
+                  }`}>
+                    {dailyDSA.solved_count}/2
+                  </span>
+                )}
+                {item.id === 'english' && englishToday?.log?.is_completed && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-emerald-500 text-white">
+                    ✓
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
 
-            {dates && (
-              <div className="text-xs text-muted">
-                Exam in <strong className="text-slate-200">{dates.days_to_exam}d</strong> | Deadline in <strong className="text-slate-200">{dates.days_to_deadline}d</strong>
+        {/* Streak & College Hours Card in Sidebar */}
+        <div className="p-3.5 m-3 rounded-lg border text-xs space-y-2" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+          <div className="flex items-center justify-between">
+            <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>English Streak:</span>
+            <span className="font-bold text-amber-500">🔥 {englishToday?.streak_days || 0} days</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>College Today:</span>
+            <span className="font-bold" style={{ color: 'var(--text-primary)' }}>
+              {todaySchedule?.college_hours > 0 ? `${todaySchedule.college_hours} hrs` : 'Holiday / Off'}
+            </span>
+          </div>
+          {feasibility && (
+            <div className="pt-1.5 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <div className="flex justify-between items-center text-[11px]">
+                <span style={{ color: 'var(--text-muted)' }}>Status:</span>
+                <span className={`font-bold ${
+                  feasibility.status_label === 'ON_TRACK' ? 'text-emerald-500' :
+                  feasibility.status_label === 'TIGHT' ? 'text-amber-500' : 'text-rose-500'
+                }`}>
+                  {feasibility.status_label.replace('_', ' ')}
+                </span>
               </div>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header Bar */}
+        <header className="px-6 py-3.5 border-b flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30" style={{ backgroundColor: 'var(--bg-header)', borderColor: 'var(--border-color)', backdropFilter: 'blur(8px)' }}>
+          <div>
+            <h2 className="text-base font-bold capitalize" style={{ color: 'var(--text-primary)' }}>
+              {navItems.find(n => n.id === activeTab)?.label || 'Dashboard'}
+            </h2>
+            {timeData && (
+              <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                {timeData.formatted_date} • <span className="font-mono font-bold" style={{ color: 'var(--text-secondary)' }}>{timeData.formatted_time}</span> (IST)
+              </p>
             )}
           </div>
-        )}
 
-        {/* Global Actions */}
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-xl bg-surface-elevated hover:bg-slate-700 text-slate-300 transition-smooth"
-            title="Toggle Theme"
-          >
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
-          <button
-            onClick={() => setShowOnboarding(true)}
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-smooth"
-          >
-            Setup Wizard
-          </button>
-        </div>
-      </header>
+          <div className="flex items-center space-x-3">
+            {/* Quick Metrics */}
+            <div className="hidden lg:flex items-center space-x-3 text-xs">
+              <div className="px-2.5 py-1 rounded-md border font-medium flex items-center space-x-1.5" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+                <span>📖 Academic:</span>
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {todaySchedule?.academic_completed_minutes || 0}/{todaySchedule?.academic_target_minutes || 240}m
+                </strong>
+              </div>
+              <div className="px-2.5 py-1 rounded-md border font-medium flex items-center space-x-1.5" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+                <span>💻 DSA:</span>
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {dailyDSA?.solved_count || 0}/2
+                </strong>
+              </div>
+            </div>
 
-      {/* Main Tab Navigation */}
-      <nav className="border-b border-subtle bg-secondary px-6 overflow-x-auto flex space-x-1 scrollbar-none">
-        {[
-          { id: 'today', label: 'Today', icon: '📅' },
-          { id: 'calendar', label: 'Study Calendar', icon: '🗓️' },
-          { id: 'syllabus', label: 'Syllabus Explorer', icon: '📚' },
-          { id: 'subjects', label: 'Subjects', icon: '🎓' },
-          { id: 'revision', label: 'Revision', icon: '🔄' },
-          { id: 'analytics', label: 'Analytics', icon: '📊' },
-          { id: 'history', label: 'Study History', icon: '📜' },
-          { id: 'import', label: 'Import Handouts', icon: '📥' },
-          { id: 'settings', label: 'Settings', icon: '⚙️' }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-3 text-xs font-semibold whitespace-nowrap border-b-2 flex items-center space-x-2 transition-smooth ${
-              activeTab === tab.id
-                ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-            }`}
-          >
-            <span>{tab.icon}</span>
-            <span>{tab.label}</span>
-          </button>
-        ))}
-      </nav>
+            {/* Theme Toggle Button */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg border text-sm transition-smooth"
+              style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+              title="Toggle Light / Dark Theme"
+            >
+              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+            </button>
 
-      {/* Content Area */}
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
-        {activeTab === 'today' && (
-          <TodayView
-            todaySchedule={todaySchedule}
-            dates={dates}
-            feasibility={feasibility}
-            onStartSession={(task) => {
-              setFocusSessionTask(task);
-              setIsFocusModalOpen(true);
-            }}
-            onRefresh={refreshAll}
-            showToast={showToast}
-          />
-        )}
+            <button
+              onClick={refreshAll}
+              className="p-2 rounded-lg border text-sm transition-smooth"
+              style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+              title="Refresh Data"
+            >
+              🔄
+            </button>
+          </div>
+        </header>
 
-        {activeTab === 'calendar' && (
-          <CalendarView
-            dates={dates}
-            onStartSession={(task) => {
-              setFocusSessionTask(task);
-              setIsFocusModalOpen(true);
-            }}
-            onRefresh={refreshAll}
-            showToast={showToast}
-          />
-        )}
+        {/* View Router */}
+        <main className="p-6 flex-1 overflow-y-auto max-w-7xl w-full mx-auto space-y-6">
+          {activeTab === 'dashboard' && (
+            <DashboardView
+              todaySchedule={todaySchedule}
+              dates={dates}
+              feasibility={feasibility}
+              todayQuote={todayQuote}
+              dailyDSA={dailyDSA}
+              englishToday={englishToday}
+              onStartSession={(task) => {
+                setFocusSessionTask(task);
+                setIsFocusModalOpen(true);
+              }}
+              onNavigate={(tab) => setActiveTab(tab)}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
 
-        {activeTab === 'syllabus' && (
-          <SyllabusView
-            subjects={subjects}
-            onRefresh={refreshAll}
-            showToast={showToast}
-          />
-        )}
+          {activeTab === 'calendar' && (
+            <StudyCalendarView
+              dates={dates}
+              onStartSession={(task) => {
+                setFocusSessionTask(task);
+                setIsFocusModalOpen(true);
+              }}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
 
-        {activeTab === 'subjects' && (
-          <SubjectsView
-            subjects={subjects}
-            onRefresh={refreshAll}
-            showToast={showToast}
-          />
-        )}
+          {activeTab === 'courses' && (
+            <CoursesUnitsView
+              subjects={subjects}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
 
-        {activeTab === 'revision' && (
-          <RevisionView
-            dates={dates}
-            onRefresh={refreshAll}
-            showToast={showToast}
-          />
-        )}
+          {activeTab === 'dsa' && (
+            <DailyDSAView
+              dailyDSA={dailyDSA}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
 
-        {activeTab === 'analytics' && (
-          <AnalyticsView
-            feasibility={feasibility}
-            dates={dates}
-          />
-        )}
+          {activeTab === 'english' && (
+            <EnglishSpeakingView
+              englishToday={englishToday}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
 
-        {activeTab === 'history' && (
-          <HistoryView
-            onRefresh={refreshAll}
-          />
-        )}
+          {activeTab === 'revision' && (
+            <RevisionPlannerView
+              dates={dates}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
 
-        {activeTab === 'import' && (
-          <ImportView
-            onRefresh={refreshAll}
-            showToast={showToast}
-            onSuccess={() => setActiveTab('syllabus')}
-          />
-        )}
+          {activeTab === 'extra_time' && (
+            <ExtraTimeView
+              onNavigate={(tab) => setActiveTab(tab)}
+              onStartSession={(task) => {
+                setFocusSessionTask(task);
+                setIsFocusModalOpen(true);
+              }}
+              showToast={showToast}
+            />
+          )}
 
-        {activeTab === 'settings' && (
-          <SettingsView
-            settings={settings}
-            dates={dates}
-            onRefresh={loadInitialData}
-            showToast={showToast}
-            onOpenOnboarding={() => setShowOnboarding(true)}
-          />
-        )}
-      </main>
+          {activeTab === 'analytics' && (
+            <AnalyticsView
+              feasibility={feasibility}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
 
-      {/* Focus Mode Study Session Modal */}
+          {activeTab === 'history' && (
+            <StudyHistoryView
+              showToast={showToast}
+            />
+          )}
+
+          {activeTab === 'import' && (
+            <HandoutImportView
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
+
+          {activeTab === 'settings' && (
+            <SettingsView
+              settings={settings}
+              onRefresh={refreshAll}
+              showToast={showToast}
+            />
+          )}
+        </main>
+      </div>
+
+      {/* Focus Mode Running Timer Modal */}
       {isFocusModalOpen && focusSessionTask && (
-        <FocusSessionModal
+        <FocusModeModal
           task={focusSessionTask}
           onClose={() => {
             setIsFocusModalOpen(false);
             setFocusSessionTask(null);
-          }}
-          onFinish={async () => {
-            setIsFocusModalOpen(false);
-            setFocusSessionTask(null);
-            await refreshAll();
-            showToast('Study session completed and recorded!', 'success');
-          }}
-          showToast={showToast}
-        />
-      )}
-
-      {/* First-Run Onboarding Modal */}
-      {showOnboarding && (
-        <OnboardingModal
-          settings={settings}
-          onClose={() => setShowOnboarding(false)}
-          onComplete={async () => {
-            setShowOnboarding(false);
-            await loadInitialData();
-            showToast('Setup complete! Your personalized schedule is ready.', 'success');
+            refreshAll();
           }}
           showToast={showToast}
         />
@@ -311,375 +412,443 @@ function App() {
   );
 }
 
-// ----------------- TODAY VIEW -----------------
+// ----------------- 1. DASHBOARD VIEW -----------------
 
-function TodayView({ todaySchedule, dates, feasibility, onStartSession, onRefresh, showToast }) {
-  const [completingTask, setCompletingTask] = useState(null);
+function DashboardView({ todaySchedule, dates, feasibility, todayQuote, dailyDSA, englishToday, onStartSession, onNavigate, onRefresh, showToast }) {
+  const [extraRecs, setExtraRecs] = useState([]);
+  const [quoteFav, setQuoteFav] = useState(todayQuote?.is_favorite || false);
+  const [rescheduleModalTask, setRescheduleModalTask] = useState(null);
   const [completePct, setCompletePct] = useState(100);
   const [actualMins, setActualMins] = useState(60);
   const [confidence, setConfidence] = useState(4);
   const [notes, setNotes] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleQuickComplete = async (taskId, pct, actual) => {
-    try {
-      const res = await window.StudyPilotAPI.completeTask(taskId, {
-        status: pct === 100 ? 'COMPLETED' : 'PARTIALLY_COMPLETED',
-        completion_percentage: pct,
-        actual_minutes: actual,
-        confidence_rating: 4,
-        notes: 'Completed from Today view'
-      });
-      await onRefresh();
-      showToast(res.summary || 'Task progress updated successfully!', 'success');
-    } catch (err) {
-      showToast('Error updating task: ' + err.message, 'error');
-    }
-  };
+  useEffect(() => {
+    window.LastChanceAPI.getExtraTime().then(res => {
+      setExtraRecs(res.recommendations || []);
+    }).catch(() => {});
+  }, []);
 
-  const handleMarkMissed = async (taskId) => {
-    try {
-      const res = await window.StudyPilotAPI.completeTask(taskId, {
-        status: 'MISSED',
-        completion_percentage: 0,
-        actual_minutes: 0,
-        confidence_rating: 1,
-        notes: 'Unfinished - carried forward by StudyPilot'
-      });
-      await onRefresh();
-      showToast(res.summary || 'Unfinished task rescheduled automatically.', 'info');
-    } catch (err) {
-      showToast('Error rescheduling task: ' + err.message, 'error');
-    }
-  };
+  const academicDone = todaySchedule?.academic_completed_minutes || 0;
+  const academicTarget = todaySchedule?.academic_target_minutes || 240;
+  const academicPct = Math.min(100, Math.round((academicDone / academicTarget) * 100));
 
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    try {
-      const res = await window.StudyPilotAPI.generateSchedule(true);
-      await onRefresh();
-      showToast(`Schedule generated with ${res.tasks_scheduled} study sessions.`, 'success');
-    } catch (err) {
-      showToast('Generation failed: ' + err.message, 'error');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+  const dsaSolved = dailyDSA?.solved_count || 0;
+  const englishCompleted = englishToday?.log?.is_completed || false;
+  const englishSeconds = englishToday?.log?.time_spent_seconds || 0;
+  const englishMins = Math.floor(englishSeconds / 60);
 
   const tasks = todaySchedule?.tasks || [];
 
+  const handleToggleQuoteFav = async () => {
+    if (!todayQuote?.id) return;
+    try {
+      const res = await window.LastChanceAPI.toggleQuoteFavorite(todayQuote.id);
+      setQuoteFav(res.is_favorite);
+      showToast(res.is_favorite ? 'Added to favorites!' : 'Removed from favorites.');
+    } catch (e) {
+      showToast('Failed to update favorite', 'error');
+    }
+  };
+
+  const handleQuickComplete = async (taskId, minutes) => {
+    try {
+      await window.LastChanceAPI.completeTask(taskId, {
+        status: 'COMPLETED',
+        completion_percentage: 100,
+        actual_minutes: minutes,
+        confidence_rating: 4,
+        notes: 'Quick completed from dashboard'
+      });
+      await onRefresh();
+      showToast('Task marked 100% completed!', 'success');
+    } catch (e) {
+      showToast('Failed to update task: ' + e.message, 'error');
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Top Countdown Banner */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase tracking-wider">Today's Date</p>
-          <p className="text-xl font-bold mt-1 text-slate-100">{dates?.today_str}</p>
-          <p className="text-xs text-indigo-400 mt-1">Local Asia/Kolkata</p>
+      {/* 4 Core Daily Targets Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Metric 1: Academic Study (240m target) */}
+        <div className="lc-card p-4 space-y-2">
+          <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+            <span>📖 Academic Target</span>
+            <span className="text-indigo-400 font-bold">{academicPct}%</span>
+          </div>
+          <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
+            {academicDone} <span className="text-xs font-medium text-slate-400">/ {academicTarget} mins</span>
+          </div>
+          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div className="bg-indigo-500 h-2 rounded-full transition-smooth" style={{ width: `${academicPct}%` }}></div>
+          </div>
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            Reserved for semester coursework (4 courses).
+          </p>
         </div>
 
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase tracking-wider">First Examination</p>
-          <div className="flex items-baseline space-x-2 mt-1">
-            <span className="text-2xl font-extrabold text-indigo-400">{dates?.days_to_exam}</span>
-            <span className="text-xs text-slate-400">days left ({dates?.first_exam_str})</span>
+        {/* Metric 2: Daily DSA (2 questions) */}
+        <div className="lc-card p-4 space-y-2 cursor-pointer hover:border-emerald-500/50" onClick={() => onNavigate('dsa')}>
+          <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+            <span>💻 Compulsory DSA</span>
+            <span className={dsaSolved >= 2 ? 'badge-success badge' : 'badge-warning badge'}>
+              {dsaSolved >= 2 ? 'Completed' : 'Pending'}
+            </span>
           </div>
-          <p className="text-[11px] text-muted mt-1">End-Semester Examinations</p>
+          <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
+            {dsaSolved} <span className="text-xs font-medium text-slate-400">/ 2 questions</span>
+          </div>
+          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div className="bg-emerald-500 h-2 rounded-full transition-smooth" style={{ width: `${(dsaSolved / 2) * 100}%` }}></div>
+          </div>
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            Tracked separately outside 240m target.
+          </p>
         </div>
 
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase tracking-wider">Syllabus Completion Deadline</p>
-          <div className="flex items-baseline space-x-2 mt-1">
-            <span className="text-2xl font-extrabold text-emerald-400">{dates?.days_to_deadline}</span>
-            <span className="text-xs text-slate-400">days left ({dates?.first_pass_deadline_str})</span>
+        {/* Metric 3: English Speaking (30 min) */}
+        <div className="lc-card p-4 space-y-2 cursor-pointer hover:border-amber-500/50" onClick={() => onNavigate('english')}>
+          <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+            <span>🗣️ English Speaking</span>
+            <span className={englishCompleted ? 'badge-success badge' : 'badge-warning badge'}>
+              {englishCompleted ? 'Done' : 'Incomplete'}
+            </span>
           </div>
-          <p className="text-[11px] text-emerald-400/80 mt-1">Protected 7-Day Revision Buffer</p>
+          <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
+            {englishMins} <span className="text-xs font-medium text-slate-400">/ 30 mins</span>
+          </div>
+          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div className="bg-amber-500 h-2 rounded-full transition-smooth" style={{ width: `${Math.min(100, (englishMins / 30) * 100)}%` }}></div>
+          </div>
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            Daily fluency & interview drill.
+          </p>
         </div>
 
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase tracking-wider">Today's Workload</p>
-          <div className="flex items-baseline space-x-2 mt-1">
-            <span className="text-2xl font-extrabold text-slate-100">{todaySchedule?.scheduled_minutes || 0}</span>
-            <span className="text-xs text-slate-400">/ {todaySchedule?.available_minutes || 0} mins</span>
+        {/* Metric 4: College Commitments */}
+        <div className="lc-card p-4 space-y-2">
+          <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+            <span>🏫 College Classes</span>
+            <span className="badge badge-info font-bold">
+              {todaySchedule?.college_hours > 0 ? 'Working Day' : 'Holiday'}
+            </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">
-            Free Buffer: <strong className="text-indigo-400">{todaySchedule?.remaining_free_minutes || 0}m</strong>
+          <div className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>
+            {todaySchedule?.college_hours || 0} <span className="text-xs font-medium text-slate-400">hours</span>
+          </div>
+          <p className="text-[11px] pt-2" style={{ color: 'var(--text-muted)' }}>
+            {todaySchedule?.college_hours > 0
+              ? 'Classes scheduled. Academic study starts afterwards.'
+              : 'No college classes today. Full study window available.'}
           </p>
         </div>
       </div>
 
-      {/* Feasibility Alert */}
-      {feasibility && (
-        <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-          feasibility.status_label === 'ON_TRACK' ? 'bg-emerald-950/30 border-emerald-800 text-emerald-200' :
-          feasibility.status_label === 'TIGHT' ? 'bg-amber-950/30 border-amber-800 text-amber-200' :
-          'bg-rose-950/30 border-rose-800 text-rose-200'
-        }`}>
-          <div>
+      {/* Daily Motivational Quote */}
+      {todayQuote && (
+        <div className="lc-card p-4 border-l-4 border-indigo-500 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="space-y-1 flex-1">
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-sm">
-                {feasibility.status_label === 'ON_TRACK' ? '✓ Schedule Feasible & On Track' :
-                 feasibility.status_label === 'TIGHT' ? '⚠️ Tight Study Schedule' : '🚨 Schedule Overload Detected'}
-              </span>
-              <span className="text-xs opacity-75">
-                ({feasibility.total_remaining_hours}h required vs {feasibility.total_available_hours}h available)
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 uppercase tracking-wider">
+                Daily Motivation • {todayQuote.category}
               </span>
             </div>
-            <p className="text-xs mt-1 opacity-90">{feasibility.warning_message}</p>
-            {feasibility.actionable_recommendations.length > 0 && (
-              <ul className="text-xs mt-2 list-disc list-inside space-y-0.5 opacity-80">
-                {feasibility.actionable_recommendations.slice(0, 2).map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            )}
+            <p className="text-sm font-semibold italic text-slate-200">
+              "{todayQuote.quote_text}"
+            </p>
+            <p className="text-xs font-medium text-slate-400">— {todayQuote.author || 'Anonymous'}</p>
           </div>
-
-          <div className="flex items-center space-x-2 self-start md:self-auto">
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-smooth flex items-center space-x-2"
-            >
-              <span>{isGenerating ? 'Recalculating...' : 'Regenerate Plan'}</span>
-            </button>
-          </div>
+          <button
+            onClick={handleToggleQuoteFav}
+            className={`p-2 rounded-lg text-sm border transition-smooth shrink-0 ${
+              quoteFav ? 'bg-amber-500/20 border-amber-500 text-amber-400' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+            title={quoteFav ? 'Favorited' : 'Save as Favorite'}
+          >
+            {quoteFav ? '★ Saved' : '☆ Save'}
+          </button>
         </div>
       )}
 
-      {/* Today's Tasks Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold">Today's Study Plan</h2>
-            <p className="text-xs text-muted">
-              {tasks.length} topics scheduled for deep learning and problem solving today
-            </p>
+      {/* Today's Schedule & Extra Time Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Cols: Today's Timeline Tasks */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Today's Academic Study Tasks</h3>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {tasks.length} sessions scheduled • {todaySchedule?.scheduled_minutes || 0} minutes total
+              </p>
+            </div>
+            <button
+              onClick={() => window.LastChanceAPI.generateSchedule(true).then(() => { onRefresh(); showToast('Schedule recalculated!', 'success'); })}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-secondary"
+            >
+              🔄 Recalculate
+            </button>
           </div>
-          {todaySchedule && (
-            <div className="text-xs text-muted">
-              Completion: <strong className="text-indigo-400">{todaySchedule.completion_rate}%</strong>
+
+          {tasks.length === 0 ? (
+            <div className="lc-card p-8 text-center space-y-3">
+              <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                No academic study sessions scheduled for today.
+              </p>
+              <button
+                onClick={() => window.LastChanceAPI.generateSchedule(true).then(() => { onRefresh(); showToast('Schedule generated!', 'success'); })}
+                className="btn-primary text-xs font-bold"
+              >
+                Generate Today's Study Plan
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {tasks.map((task, idx) => {
+                const isCompleted = task.status === 'COMPLETED';
+                return (
+                  <div key={task.id} className="lc-card p-4 space-y-3 transition-smooth">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded text-white" style={{ backgroundColor: task.subject_color || '#4f46e5' }}>
+                          {task.subject_code}
+                        </span>
+                        <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                          Unit {task.unit_number}: {task.unit_title}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                          ⏱️ {task.duration_minutes}m
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                        isCompleted ? 'badge-success badge' : 'badge-warning badge'
+                      }`}>
+                        {task.status}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-100">{task.topic_title}</h4>
+                      {task.subtopics?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {task.subtopics.map((st, i) => (
+                            <span key={i} className="code-pill text-[11px]">{st}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {task.learning_objectives && (
+                      <div className="p-2.5 rounded-md text-xs border space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                        <div className="font-semibold text-indigo-400">Objectives & Method:</div>
+                        <div className="text-slate-300 whitespace-pre-line text-[11px] leading-relaxed">{task.learning_objectives}</div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between pt-1 gap-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                      <button
+                        onClick={() => onStartSession(task)}
+                        className="px-3 py-1.5 rounded-md text-xs font-bold btn-primary"
+                      >
+                        ⏱️ Launch Focus Mode
+                      </button>
+
+                      <div className="flex items-center space-x-2">
+                        {!isCompleted && (
+                          <button
+                            onClick={() => handleQuickComplete(task.id, task.duration_minutes)}
+                            className="px-3 py-1.5 rounded-md text-xs font-semibold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-smooth"
+                          >
+                            ✓ Mark Done
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setRescheduleModalTask(task);
+                            setActualMins(task.duration_minutes);
+                          }}
+                          className="px-3 py-1.5 rounded-md text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-smooth"
+                        >
+                          Log / Reschedule
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
-        {tasks.length === 0 ? (
-          <div className="glass-panel p-10 rounded-2xl border border-subtle text-center space-y-3">
-            <div className="text-3xl">🎉</div>
-            <h3 className="font-bold text-base">No Study Tasks Scheduled for Today</h3>
-            <p className="text-xs text-muted max-w-md mx-auto">
-              Your schedule is currently empty or all of today's work has been marked complete. Click below to generate or advance tasks.
+        {/* Right 1 Col: "Have Extra Time?" & Exam Countdown */}
+        <div className="space-y-6">
+          {/* "Have Extra Time? Do This Next" */}
+          <div className="lc-card p-4 space-y-3 border-amber-500/30">
+            <div className="flex items-center space-x-2">
+              <span className="text-base">⭐</span>
+              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                Have Extra Time? Do This Next
+              </h3>
+            </div>
+            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Intelligent optional recommendations based on remaining time and weak areas:
             </p>
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-smooth"
-            >
-              {isGenerating ? 'Generating...' : 'Generate Realistic Schedule'}
-            </button>
+
+            <div className="space-y-2.5">
+              {extraRecs.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">
+                  You're all caught up! Take a break and recharge.
+                </p>
+              ) : (
+                extraRecs.map((rec, idx) => (
+                  <div key={idx} className="p-3 rounded-lg border text-xs space-y-1.5 transition-smooth" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: rec.color || '#4f46e5' }}>
+                        {rec.category}
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-400">⏱️ {rec.estimated_minutes}m</span>
+                    </div>
+                    <div className="font-semibold text-slate-200">{rec.title}</div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">{rec.reason}</p>
+                    {rec.action_type === 'DSA_NAV' && (
+                      <button onClick={() => onNavigate('dsa')} className="text-[11px] font-bold text-indigo-400 hover:underline pt-1 block">
+                        Go to Daily DSA →
+                      </button>
+                    )}
+                    {rec.action_type === 'ENGLISH_NAV' && (
+                      <button onClick={() => onNavigate('english')} className="text-[11px] font-bold text-indigo-400 hover:underline pt-1 block">
+                        Go to English Speaking →
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {tasks.map(task => (
-              <div
-                key={task.id}
-                className={`glass-panel p-5 rounded-2xl border transition-smooth ${
-                  task.status === 'COMPLETED' ? 'border-emerald-500/40 bg-emerald-950/10' :
-                  task.status === 'PARTIALLY_COMPLETED' ? 'border-amber-500/40 bg-amber-950/10' :
-                  task.status === 'MISSED' ? 'border-rose-500/40 bg-rose-950/10' :
-                  'border-subtle hover:border-slate-700'
-                }`}
-              >
-                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                  <div className="space-y-2 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className="text-xs font-bold px-2.5 py-0.5 rounded-lg text-white"
-                        style={{ backgroundColor: task.subject_color || '#6366f1' }}
-                      >
-                        {task.subject_code} • {task.subject_name}
-                      </span>
-                      <span className="text-xs text-muted font-medium">Unit {task.unit_number}: {task.unit_title}</span>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-surface-elevated text-slate-300">
-                        ⏱️ {task.duration_minutes} mins
-                      </span>
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                        task.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-400' :
-                        task.status === 'PARTIALLY_COMPLETED' ? 'bg-amber-500/20 text-amber-400' :
-                        task.status === 'MISSED' ? 'bg-rose-500/20 text-rose-400' :
-                        'bg-indigo-500/20 text-indigo-400'
-                      }`}>
-                        {task.status.replace('_', ' ')}
-                      </span>
-                    </div>
 
-                    <h3 className="text-base font-bold text-slate-100">{task.topic_title}</h3>
-
-                    {task.subtopics?.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {task.subtopics.map((st, i) => (
-                          <span key={i} className="code-pill text-[11px] text-slate-300">
-                            {st}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Learning Objectives & Breakdown */}
-                    <div className="bg-surface/60 p-3 rounded-xl border border-subtle space-y-1.5 text-xs">
-                      <div>
-                        <strong className="text-indigo-400 font-semibold">Study Method:</strong>{' '}
-                        <span className="text-slate-300">{task.study_method}</span>
-                      </div>
-                      <div className="whitespace-pre-line text-slate-300 leading-relaxed">
-                        {task.learning_objectives}
-                      </div>
-                      <div className="text-slate-400 border-t border-subtle/50 pt-1.5">
-                        <strong className="text-slate-300">Suggested Plan:</strong> {task.suggested_breakdown}
-                      </div>
-                    </div>
-
-                    {task.reasoning && (
-                      <p className="text-[11px] text-muted italic">
-                        💡 {task.reasoning}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Action Controls */}
-                  <div className="flex flex-row md:flex-col gap-2 shrink-0">
-                    <button
-                      onClick={() => onStartSession(task)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-smooth flex items-center justify-center space-x-1.5"
-                    >
-                      <span>⏱️ Focus Mode</span>
-                    </button>
-
-                    {task.status !== 'COMPLETED' && (
-                      <button
-                        onClick={() => handleQuickComplete(task.id, 100, task.duration_minutes)}
-                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-smooth"
-                      >
-                        ✓ Mark 100% Done
-                      </button>
-                    )}
-
-                    <button
-                      onClick={() => {
-                        setCompletingTask(task);
-                        setActualMins(task.duration_minutes);
-                        setCompletePct(50);
-                      }}
-                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 transition-smooth"
-                    >
-                      ✏️ Partial Progress
-                    </button>
-
-                    {task.status === 'PENDING' && (
-                      <button
-                        onClick={() => handleMarkMissed(task.id)}
-                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition-smooth"
-                      >
-                        ⏩ Missed / Reschedule
-                      </button>
-                    )}
-                  </div>
+          {/* Upcoming Exam Milestones */}
+          <div className="lc-card p-4 space-y-3">
+            <h3 className="text-sm font-bold flex items-center justify-between" style={{ color: 'var(--text-primary)' }}>
+              <span>🎯 Exam Countdown</span>
+              <span className="text-xs text-rose-400 font-bold">First: {dates?.days_to_exam || 0}d left</span>
+            </h3>
+            <div className="space-y-2 text-xs">
+              <div className="p-2.5 rounded-lg border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <div>
+                  <div className="font-bold text-slate-200">CSN 3001: Data Structures</div>
+                  <div className="text-[10px] text-slate-400">Exam: 2026-11-26</div>
                 </div>
+                <span className="badge badge-error">Nov 26</span>
               </div>
-            ))}
+              <div className="p-2.5 rounded-lg border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <div>
+                  <div className="font-bold text-slate-200">CSN 3003: Discrete Structures</div>
+                  <div className="text-[10px] text-slate-400">Exam: 2026-11-28</div>
+                </div>
+                <span className="badge badge-error">Nov 28</span>
+              </div>
+              <div className="p-2.5 rounded-lg border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <div>
+                  <div className="font-bold text-slate-200">CSN 3004: Object-Oriented Prog</div>
+                  <div className="text-[10px] text-slate-400">Exam: 2026-12-01</div>
+                </div>
+                <span className="badge badge-error">Dec 01</span>
+              </div>
+              <div className="p-2.5 rounded-lg border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <div>
+                  <div className="font-bold text-slate-200">CSN 3002: Data Science & ML</div>
+                  <div className="text-[10px] text-slate-400">Exam: 2026-12-04</div>
+                </div>
+                <span className="badge badge-error">Dec 04</span>
+              </div>
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Partial Completion Modal */}
-      {completingTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
-          <div className="glass-panel p-6 rounded-2xl border border-subtle max-w-md w-full space-y-4 shadow-2xl">
-            <h3 className="font-bold text-base">Record Progress for {completingTask.topic_title}</h3>
-            
+      {/* Task Reschedule / Completion Modal */}
+      {rescheduleModalTask && (
+        <div className="modal-overlay" onClick={() => setRescheduleModalTask(null)}>
+          <div className="modal-dialog p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+              <h3 className="text-base font-bold text-slate-100">Log Progress / Reschedule Task</h3>
+              <button onClick={() => setRescheduleModalTask(null)} className="text-slate-400 hover:text-slate-200 text-lg">✕</button>
+            </div>
+
+            <div>
+              <div className="text-xs text-indigo-400 font-bold">{rescheduleModalTask.subject_code} • {rescheduleModalTask.subject_name}</div>
+              <div className="text-sm font-bold text-slate-100">{rescheduleModalTask.topic_title}</div>
+            </div>
+
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-muted block mb-1">Percentage Completed ({completePct}%)</label>
+                <label className="block text-slate-300 font-medium mb-1">Completion Percentage ({completePct}%):</label>
                 <input
                   type="range"
-                  min="10"
+                  min="0"
                   max="100"
-                  step="5"
+                  step="10"
                   value={completePct}
-                  onChange={(e) => setCompletePct(Number(e.target.value))}
-                  className="w-full accent-indigo-500"
+                  onChange={e => setCompletePct(Number(e.target.value))}
+                  className="w-full"
                 />
               </div>
 
               <div>
-                <label className="text-muted block mb-1">Actual Minutes Spent</label>
+                <label className="block text-slate-300 font-medium mb-1">Actual Minutes Spent:</label>
                 <input
                   type="number"
-                  min="5"
-                  max="300"
                   value={actualMins}
-                  onChange={(e) => setActualMins(Number(e.target.value))}
-                  className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
+                  onChange={e => setActualMins(Number(e.target.value))}
+                  className="w-full"
                 />
               </div>
 
               <div>
-                <label className="text-muted block mb-1">Confidence Rating (1 to 5 Stars)</label>
-                <div className="flex space-x-2">
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setConfidence(star)}
-                      className={`px-3 py-1.5 rounded-lg border text-sm transition-smooth ${
-                        confidence >= star ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-surface border-subtle text-muted'
-                      }`}
-                    >
-                      ★ {star}
-                    </button>
-                  ))}
-                </div>
+                <label className="block text-slate-300 font-medium mb-1">Confidence Rating (1 to 5):</label>
+                <select value={confidence} onChange={e => setConfidence(Number(e.target.value))} className="w-full">
+                  <option value="1">1 - Stが現 Struggled / Confused</option>
+                  <option value="2">2 - Partially Understood</option>
+                  <option value="3">3 - Moderate Comprehension</option>
+                  <option value="4">4 - Confident</option>
+                  <option value="5">5 - Mastered & Retained</option>
+                </select>
               </div>
 
               <div>
-                <label className="text-muted block mb-1">Notes / Blockers</label>
+                <label className="block text-slate-300 font-medium mb-1">Notes / Blockers:</label>
                 <textarea
                   rows="2"
                   value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="What concepts felt tough? What remains unfinished?"
-                  className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="Record what was easy or what needs revision..."
+                  className="w-full"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end space-x-3 pt-2">
-              <button
-                onClick={() => setCompletingTask(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200"
-              >
-                Cancel
-              </button>
+            <div className="flex justify-end space-x-2 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <button onClick={() => setRescheduleModalTask(null)} className="btn-secondary text-xs">Cancel</button>
               <button
                 onClick={async () => {
                   try {
-                    const res = await window.StudyPilotAPI.completeTask(completingTask.id, {
+                    await window.LastChanceAPI.completeTask(rescheduleModalTask.id, {
                       status: completePct >= 100 ? 'COMPLETED' : 'PARTIALLY_COMPLETED',
                       completion_percentage: completePct,
                       actual_minutes: actualMins,
                       confidence_rating: confidence,
                       notes: notes
                     });
-                    setCompletingTask(null);
+                    setRescheduleModalTask(null);
                     await onRefresh();
-                    showToast(res.summary || 'Progress updated and schedule adapted!', 'success');
-                  } catch (err) {
-                    showToast('Failed to save progress: ' + err.message, 'error');
+                    showToast('Task progress saved and future schedule updated!', 'success');
+                  } catch (e) {
+                    showToast('Failed to save progress: ' + e.message, 'error');
                   }
                 }}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow"
+                className="btn-primary text-xs"
               >
-                Save & Recalculate
+                Save & Update Schedule
               </button>
             </div>
           </div>
@@ -689,409 +858,444 @@ function TodayView({ todaySchedule, dates, feasibility, onStartSession, onRefres
   );
 }
 
-// ----------------- CALENDAR VIEW -----------------
+// ----------------- 2. STUDY CALENDAR VIEW (FULL REPAIR) -----------------
 
-function CalendarView({ dates, onStartSession, onRefresh, showToast }) {
-  const [schedules, setSchedules] = useState([]);
+function StudyCalendarView({ dates, onStartSession, onRefresh, showToast }) {
+  const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(dates?.today_str || new Date().toISOString().split('T')[0]);
-  const [viewMode, setViewMode] = useState('month'); // 'month' or 'week'
+  const [viewMode, setViewMode] = useState('month'); // 'month', 'week', 'day'
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const d = new Date(selectedDate || '2026-10-25');
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
 
-  const loadSchedules = async () => {
+  const [addEventModalDate, setAddEventModalDate] = useState(null);
+  const [newEventTitle, setNewEventTitle] = useState('');
+  const [newEventType, setNewEventType] = useState('study');
+  const [newEventTime, setNewEventTime] = useState('18:00');
+  const [newEventDesc, setNewEventDesc] = useState('');
+
+  const loadCalendarEvents = async () => {
     try {
-      const data = await window.StudyPilotAPI.getScheduleRange();
-      setSchedules(data);
+      const data = await window.LastChanceAPI.getCalendarEvents();
+      setEvents(data.events || []);
     } catch (err) {
-      showToast('Failed to load schedule: ' + err.message, 'error');
+      showToast('Failed to load calendar events: ' + err.message, 'error');
     }
   };
 
   useEffect(() => {
-    loadSchedules();
+    loadCalendarEvents();
   }, []);
 
-  // Group schedules by date
-  const scheduleByDate = useMemo(() => {
+  // Events indexed by date
+  const eventsByDate = useMemo(() => {
     const map = {};
-    for (const item of schedules) {
-      if (!map[item.scheduled_date]) map[item.scheduled_date] = [];
-      map[item.scheduled_date].push(item);
+    for (const ev of events) {
+      if (!map[ev.event_date]) map[ev.event_date] = [];
+      map[ev.event_date].push(ev);
     }
     return map;
-  }, [schedules]);
+  }, [events]);
 
-  // Generate calendar days for October/November/December 2026
-  const calendarDays = useMemo(() => {
+  // Month navigation
+  const prevMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+  const nextMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+  const goToToday = () => {
+    const t = new Date(dates?.today_str || '2026-10-25');
+    setCurrentMonth(new Date(t.getFullYear(), t.getMonth(), 1));
+    setSelectedDate(dates?.today_str || '2026-10-25');
+  };
+
+  // Generate Month Grid Days
+  const monthGridDays = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDayIndex = new Date(year, month, 1).getDay(); // 0 is Sun
+    const totalDays = new Date(year, month + 1, 0).getDate();
+
     const days = [];
-    const base = new Date(selectedDate || '2026-10-25');
-    // Start of month
-    const start = new Date(base.getFullYear(), base.getMonth(), 1);
-    const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-
-    // Padding for day of week
-    const firstDayIndex = start.getDay(); // 0 is Sunday
-    for (let i = 0; i < firstDayIndex; i++) {
-      days.push(null);
-    }
-
-    for (let d = 1; d <= end.getDate(); d++) {
-      const curr = new Date(base.getFullYear(), base.getMonth(), d);
-      const dateStr = curr.toISOString().split('T')[0];
+    // Previous month padding
+    const prevMonthTotalDays = new Date(year, month, 0).getDate();
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const d = prevMonthTotalDays - i;
+      const dStr = new Date(year, month - 1, d).toISOString().split('T')[0];
       days.push({
-        date: curr,
-        dateStr: dateStr,
         dayNumber: d,
-        items: scheduleByDate[dateStr] || []
+        dateStr: dStr,
+        isCurrentMonth: false,
+        events: eventsByDate[dStr] || []
       });
     }
-    return days;
-  }, [selectedDate, scheduleByDate]);
 
-  const selectedDateTasks = scheduleByDate[selectedDate] || [];
+    // Current month days
+    for (let d = 1; d <= totalDays; d++) {
+      const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({
+        dayNumber: d,
+        dateStr: dStr,
+        isCurrentMonth: true,
+        events: eventsByDate[dStr] || []
+      });
+    }
+
+    // Next month padding to fill 35 or 42 cells
+    const remaining = (7 - (days.length % 7)) % 7;
+    for (let d = 1; d <= remaining; d++) {
+      const dStr = new Date(year, month + 1, d).toISOString().split('T')[0];
+      days.push({
+        dayNumber: d,
+        dateStr: dStr,
+        isCurrentMonth: false,
+        events: eventsByDate[dStr] || []
+      });
+    }
+
+    return days;
+  }, [currentMonth, eventsByDate]);
+
+  // Selected date events
+  const selectedDayEvents = eventsByDate[selectedDate] || [];
+
+  const handleCreateCustomEvent = async () => {
+    if (!newEventTitle.trim()) {
+      showToast('Please enter an event title', 'error');
+      return;
+    }
+    try {
+      await window.LastChanceAPI.createCalendarEvent({
+        title: newEventTitle,
+        description: newEventDesc,
+        event_date: addEventModalDate,
+        start_time: newEventTime,
+        event_type: newEventType,
+        is_completed: false
+      });
+      setAddEventModalDate(null);
+      setNewEventTitle('');
+      setNewEventDesc('');
+      await loadCalendarEvents();
+      showToast('Custom calendar event created!', 'success');
+    } catch (e) {
+      showToast('Failed to create event: ' + e.message, 'error');
+    }
+  };
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const currentMonthLabel = `${monthNames[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`;
 
   return (
     <div className="space-y-6">
+      {/* Calendar Header Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold">Study Calendar & Timeline</h2>
-          <p className="text-xs text-muted">Inspect workload distribution, topic placements, and buffer periods</p>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Study Calendar</h2>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Real schedule timeline, college class schedules, exams, and special breaks
+          </p>
         </div>
 
-        <div className="flex items-center space-x-2">
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="p-2 rounded-xl bg-surface border border-subtle text-xs text-slate-100"
-          />
-          <button
-            onClick={onRefresh}
-            className="p-2 rounded-xl bg-surface-elevated hover:bg-slate-700 text-xs transition-smooth"
-            title="Refresh"
-          >
-            🔄
-          </button>
+        {/* View Switcher & Month Navigation */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border-color)' }}>
+            <button
+              onClick={() => setViewMode('month')}
+              className={`px-3 py-1.5 text-xs font-semibold ${viewMode === 'month' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              Month
+            </button>
+            <button
+              onClick={() => setViewMode('week')}
+              className={`px-3 py-1.5 text-xs font-semibold ${viewMode === 'week' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              Week
+            </button>
+            <button
+              onClick={() => setViewMode('day')}
+              className={`px-3 py-1.5 text-xs font-semibold ${viewMode === 'day' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+            >
+              Day
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-1.5">
+            <button onClick={prevMonth} className="px-2.5 py-1.5 rounded-lg border text-xs btn-secondary" title="Previous Month">
+              ← Prev
+            </button>
+            <button onClick={goToToday} className="px-3 py-1.5 rounded-lg border text-xs btn-secondary font-bold">
+              Today
+            </button>
+            <button onClick={nextMonth} className="px-2.5 py-1.5 rounded-lg border text-xs btn-secondary" title="Next Month">
+              Next →
+            </button>
+          </div>
+
+          <span className="text-sm font-bold px-2 py-1" style={{ color: 'var(--text-primary)' }}>
+            {currentMonthLabel}
+          </span>
         </div>
       </div>
 
+      {/* Main Calendar & Side Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Calendar Grid */}
-        <div className="lg:col-span-2 glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-          <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold text-muted border-b border-subtle pb-2">
-            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
-          </div>
-
-          <div className="grid grid-cols-7 gap-2">
-            {calendarDays.map((day, idx) => {
-              if (!day) return <div key={idx} className="h-20 rounded-xl bg-surface/20 opacity-25"></div>;
-              const isSelected = day.dateStr === selectedDate;
-              const isToday = day.dateStr === dates?.today_str;
-              const isDeadline = day.dateStr === dates?.first_pass_deadline_str;
-              const isExam = day.dateStr === dates?.first_exam_str;
-              const totalMins = day.items.reduce((acc, it) => acc + it.duration_minutes, 0);
-
-              return (
-                <div
-                  key={idx}
-                  onClick={() => setSelectedDate(day.dateStr)}
-                  className={`h-22 p-2 rounded-xl border flex flex-col justify-between cursor-pointer transition-smooth ${
-                    isSelected ? 'border-indigo-500 bg-indigo-500/10 shadow-glow' :
-                    isToday ? 'border-emerald-500/60 bg-emerald-950/20' :
-                    isDeadline ? 'border-amber-500/60 bg-amber-950/20' :
-                    isExam ? 'border-rose-500/60 bg-rose-950/20' :
-                    'border-subtle bg-surface/40 hover:bg-surface/80'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold ${isSelected ? 'text-indigo-400' : 'text-slate-300'}`}>
-                      {day.dayNumber}
-                    </span>
-                    {day.items.length > 0 && (
-                      <span className="text-[10px] font-semibold text-slate-400">
-                        {totalMins}m
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="space-y-1 overflow-hidden">
-                    {day.items.slice(0, 2).map(it => (
-                      <div
-                        key={it.id}
-                        className="text-[10px] truncate px-1.5 py-0.5 rounded text-white font-medium"
-                        style={{ backgroundColor: it.subject_color || '#6366f1' }}
-                      >
-                        {it.topic_title}
-                      </div>
-                    ))}
-                    {day.items.length > 2 && (
-                      <span className="text-[9px] text-muted block text-right font-medium">
-                        +{day.items.length - 2} more
-                      </span>
-                    )}
-                  </div>
-
-                  {isDeadline && <span className="text-[8px] font-bold text-amber-400 uppercase">Deadline</span>}
-                  {isExam && <span className="text-[8px] font-bold text-rose-400 uppercase">Exam</span>}
+        {/* Month View Grid */}
+        {viewMode === 'month' && (
+          <div className="lg:col-span-2 space-y-3">
+            <div className="calendar-grid">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
+                <div key={i} className="text-center py-2 text-xs font-bold text-slate-400 border-b border-slate-700 bg-slate-900/50">
+                  {d}
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              ))}
 
-        {/* Selected Date Details Panel */}
-        <div className="glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-          <div className="border-b border-subtle pb-3">
-            <p className="text-xs text-muted font-medium uppercase tracking-wider">Selected Day Plan</p>
-            <h3 className="text-lg font-bold text-slate-100 mt-1">{selectedDate}</h3>
-            <p className="text-xs text-slate-400">
-              {selectedDateTasks.length} tasks scheduled • Total {selectedDateTasks.reduce((a, b) => a + b.duration_minutes, 0)} minutes
-            </p>
+              {monthGridDays.map((cell, idx) => {
+                const isSelected = cell.dateStr === selectedDate;
+                const isToday = cell.dateStr === dates?.today_str;
+                const hasExams = cell.events.some(e => e.event_type === 'exam');
+                const hasBreak = cell.events.some(e => e.event_type === 'holiday');
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => setSelectedDate(cell.dateStr)}
+                    className={`calendar-cell ${!cell.isCurrentMonth ? 'inactive-month' : ''} ${isToday ? 'is-today' : ''} ${
+                      isSelected ? 'outline outline-2 outline-indigo-500' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-xs font-bold ${isToday ? 'text-indigo-400 font-black' : 'text-slate-300'}`}>
+                        {cell.dayNumber}
+                      </span>
+                      {cell.events.length > 0 && (
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {cell.events.length}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-1 overflow-hidden flex-1">
+                      {cell.events.slice(0, 3).map((ev, eIdx) => (
+                        <div
+                          key={eIdx}
+                          className="calendar-event-pill text-white"
+                          style={{
+                            backgroundColor: ev.event_type === 'exam' ? '#ef4444' :
+                                             ev.event_type === 'holiday' ? '#8b5cf6' :
+                                             ev.event_type === 'college' ? '#475569' :
+                                             (ev.color || '#4f46e5')
+                          }}
+                          title={ev.title}
+                        >
+                          {ev.title}
+                        </div>
+                      ))}
+                      {cell.events.length > 3 && (
+                        <div className="text-[9px] text-slate-400 text-right">
+                          +{cell.events.length - 3} more
+                        </div>
+                      )}
+                    </div>
+
+                    {hasBreak && <span className="text-[8px] font-bold text-purple-400 uppercase">Break</span>}
+                    {hasExams && <span className="text-[8px] font-bold text-rose-400 uppercase">Exam</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Week View */}
+        {viewMode === 'week' && (
+          <div className="lg:col-span-2 lc-card p-5 space-y-4">
+            <h3 className="text-sm font-bold">Week Timeline</h3>
+            <div className="space-y-3">
+              {monthGridDays.slice(0, 7).map((day, idx) => (
+                <div key={idx} className="p-3 rounded-lg border space-y-1.5" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                  <div className="flex items-center justify-between font-bold text-xs text-indigo-400">
+                    <span>{day.dateStr}</span>
+                    <span>{day.events.length} scheduled</span>
+                  </div>
+                  <div className="space-y-1">
+                    {day.events.length === 0 ? (
+                      <p className="text-[11px] text-slate-500">No events</p>
+                    ) : (
+                      day.events.map((e, ei) => (
+                        <div key={ei} className="text-xs p-1.5 rounded text-white flex justify-between" style={{ backgroundColor: e.color || '#4f46e5' }}>
+                          <span>{e.title}</span>
+                          <span className="font-mono text-[10px]">{e.start_time}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Day View */}
+        {viewMode === 'day' && (
+          <div className="lg:col-span-2 lc-card p-5 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+              <div>
+                <h3 className="text-base font-bold text-slate-100">Day View: {selectedDate}</h3>
+                <p className="text-xs text-slate-400">{selectedDayEvents.length} scheduled sessions & commitments</p>
+              </div>
+              <button
+                onClick={() => setAddEventModalDate(selectedDate)}
+                className="btn-primary text-xs font-semibold"
+              >
+                + Add Event
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {selectedDayEvents.length === 0 ? (
+                <p className="text-xs text-slate-400 py-8 text-center">No events for this day.</p>
+              ) : (
+                selectedDayEvents.map((e, idx) => (
+                  <div key={idx} className="p-3.5 rounded-lg border space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded text-white" style={{ backgroundColor: e.color || '#4f46e5' }}>
+                        {e.event_type.toUpperCase()}
+                      </span>
+                      <span className="text-xs font-mono text-slate-400">{e.start_time}</span>
+                    </div>
+                    <div className="text-sm font-bold text-slate-200">{e.title}</div>
+                    <div className="text-xs text-slate-400">{e.description}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Selected Date Inspector Panel */}
+        <div className="lc-card p-5 space-y-4">
+          <div className="border-b pb-3 flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
+            <div>
+              <p className="text-xs uppercase font-bold" style={{ color: 'var(--text-muted)' }}>Selected Date Details</p>
+              <h3 className="text-base font-bold text-slate-100 mt-0.5">{selectedDate}</h3>
+            </div>
+            <button
+              onClick={() => setAddEventModalDate(selectedDate)}
+              className="px-2.5 py-1 text-xs font-semibold btn-primary"
+            >
+              + Event
+            </button>
           </div>
 
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-            {selectedDateTasks.length === 0 ? (
-              <p className="text-xs text-muted py-8 text-center">No tasks scheduled on this date.</p>
+          <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+            {selectedDayEvents.length === 0 ? (
+              <p className="text-xs text-slate-400 py-8 text-center">No tasks or commitments on this date.</p>
             ) : (
-              selectedDateTasks.map(task => (
-                <div key={task.id} className="p-3.5 rounded-xl bg-surface border border-subtle space-y-2">
+              selectedDayEvents.map((ev, idx) => (
+                <div key={idx} className="p-3 rounded-lg border space-y-1.5" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
                   <div className="flex items-center justify-between">
-                    <span
-                      className="text-[10px] font-bold px-2 py-0.5 rounded text-white"
-                      style={{ backgroundColor: task.subject_color || '#6366f1' }}
-                    >
-                      {task.subject_code}
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: ev.color || '#4f46e5' }}>
+                      {ev.event_type}
                     </span>
-                    <span className="text-xs font-semibold text-slate-300">{task.duration_minutes}m</span>
+                    <span className="text-[11px] font-mono text-slate-400">{ev.start_time}</span>
                   </div>
-                  <h4 className="text-xs font-bold text-slate-200">{task.topic_title}</h4>
-                  <p className="text-[11px] text-muted">{task.unit_title}</p>
-                  
-                  <div className="pt-1 flex justify-end">
-                    <button
-                      onClick={() => onStartSession(task)}
-                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white"
-                    >
-                      Focus Session
-                    </button>
-                  </div>
+                  <div className="text-xs font-bold text-slate-200">{ev.title}</div>
+                  <p className="text-[11px] text-slate-400">{ev.description}</p>
+                  {ev.event_type === 'study' && (
+                    <div className="pt-1.5 flex justify-end">
+                      <button
+                        onClick={() => onStartSession({ id: ev.source_id, topic_title: ev.title, duration_minutes: ev.duration_minutes || 60 })}
+                        className="px-2.5 py-1 rounded text-[11px] font-bold btn-primary"
+                      >
+                        ⏱️ Start Session
+                      </button>
+                    </div>
+                  )}
+                  {ev.id.startsWith('custom_') && (
+                    <div className="pt-1 flex justify-end">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await window.LastChanceAPI.deleteCalendarEvent(ev.source_id);
+                            await loadCalendarEvents();
+                            showToast('Custom event deleted');
+                          } catch (e) {
+                            showToast('Failed to delete event', 'error');
+                          }
+                        }}
+                        className="text-[11px] text-rose-400 hover:underline"
+                      >
+                        Delete Event
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
           </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-// ----------------- SYLLABUS EXPLORER -----------------
-
-function SyllabusView({ subjects, onRefresh, showToast }) {
-  const [syllabus, setSyllabus] = useState([]);
-  const [selectedSubject, setSelectedSubject] = useState('');
-  const [selectedMastery, setSelectedMastery] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [editingTopic, setEditingTopic] = useState(null);
-  const [isNewTopicModalOpen, setIsNewTopicModalOpen] = useState(false);
-
-  const loadSyllabus = async () => {
-    try {
-      const data = await window.StudyPilotAPI.getSyllabus(
-        selectedSubject || null,
-        selectedMastery || null
-      );
-      setSyllabus(data);
-    } catch (err) {
-      showToast('Failed to load syllabus: ' + err.message, 'error');
-    }
-  };
-
-  useEffect(() => {
-    loadSyllabus();
-  }, [selectedSubject, selectedMastery]);
-
-  const filteredTopics = useMemo(() => {
-    return syllabus.filter(t => {
-      const q = searchQuery.toLowerCase();
-      return t.title.toLowerCase().includes(q) ||
-        t.unit_title.toLowerCase().includes(q) ||
-        t.subject_name.toLowerCase().includes(q);
-    });
-  }, [syllabus, searchQuery]);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold">University Syllabus Explorer</h2>
-          <p className="text-xs text-muted">Official courses, units, topics, estimated minutes, and mastery status</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            placeholder="Search topics or units..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="p-2 rounded-xl bg-surface border border-subtle text-xs text-slate-100 w-48"
-          />
-
-          <select
-            value={selectedSubject}
-            onChange={(e) => setSelectedSubject(e.target.value)}
-            className="p-2 rounded-xl bg-surface border border-subtle text-xs text-slate-100"
-          >
-            <option value="">All Subjects</option>
-            {subjects.map(s => (
-              <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
-            ))}
-          </select>
-
-          <select
-            value={selectedMastery}
-            onChange={(e) => setSelectedMastery(e.target.value)}
-            className="p-2 rounded-xl bg-surface border border-subtle text-xs text-slate-100"
-          >
-            <option value="">All Mastery Levels</option>
-            <option value="NOT_STARTED">Not Started</option>
-            <option value="STUDIED_ONCE">Studied Once</option>
-            <option value="PARTIALLY_UNDERSTOOD">Partially Understood</option>
-            <option value="NEEDS_REVISION">Needs Revision</option>
-            <option value="CONFIDENT">Confident</option>
-            <option value="MASTERED">Mastered</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="glass-panel rounded-2xl border border-subtle overflow-hidden">
-        <div className="p-4 border-b border-subtle flex items-center justify-between text-xs text-muted">
-          <span>Showing {filteredTopics.length} topics across curriculum</span>
-        </div>
-
-        <div className="divide-y divide-subtle max-h-[600px] overflow-y-auto">
-          {filteredTopics.map(topic => (
-            <div key={topic.id} className="p-4 hover:bg-surface/50 transition-smooth flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="space-y-1.5 flex-1">
-                <div className="flex items-center space-x-2">
-                  <span
-                    className="text-[10px] font-bold px-2 py-0.5 rounded text-white"
-                    style={{ backgroundColor: topic.subject_color }}
-                  >
-                    {topic.subject_code}
-                  </span>
-                  <span className="text-xs text-muted">Unit {topic.unit_number}: {topic.unit_title}</span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                    topic.mastery_level === 'MASTERED' ? 'bg-emerald-500/20 text-emerald-400' :
-                    topic.mastery_level === 'CONFIDENT' ? 'bg-indigo-500/20 text-indigo-400' :
-                    topic.mastery_level === 'NEEDS_REVISION' ? 'bg-amber-500/20 text-amber-400' :
-                    'bg-slate-700/50 text-slate-400'
-                  }`}>
-                    {topic.mastery_level.replace('_', ' ')}
-                  </span>
-                </div>
-
-                <h4 className="text-sm font-bold text-slate-100">{topic.title}</h4>
-
-                {topic.subtopics?.length > 0 && (
-                  <div className="flex flex-wrap gap-1 text-[11px] text-muted">
-                    {topic.subtopics.map((st, i) => (
-                      <span key={i} className="code-pill">{st}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center space-x-4 shrink-0 text-xs">
-                <div className="text-right">
-                  <span className="text-slate-300 font-semibold">{topic.estimated_minutes}m</span>
-                  <span className="text-muted block text-[10px]">Base Effort</span>
-                </div>
-
-                <button
-                  onClick={() => setEditingTopic(topic)}
-                  className="px-3 py-1.5 rounded-xl border border-subtle bg-surface hover:bg-surface-elevated text-slate-200 transition-smooth font-medium"
-                >
-                  Edit Topic
-                </button>
-              </div>
+      {/* Add Custom Calendar Event Modal */}
+      {addEventModalDate && (
+        <div className="modal-overlay" onClick={() => setAddEventModalDate(null)}>
+          <div className="modal-dialog p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+              <h3 className="text-base font-bold text-slate-100">Add Calendar Event ({addEventModalDate})</h3>
+              <button onClick={() => setAddEventModalDate(null)} className="text-slate-400 text-lg">✕</button>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Edit Topic Modal */}
-      {editingTopic && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
-          <div className="glass-panel p-6 rounded-2xl border border-subtle max-w-lg w-full space-y-4 shadow-2xl">
-            <h3 className="font-bold text-base">Edit Topic: {editingTopic.title}</h3>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-muted block mb-1">Topic Title</label>
+                <label className="block text-slate-300 font-medium mb-1">Event Title:</label>
                 <input
                   type="text"
-                  value={editingTopic.title}
-                  onChange={(e) => setEditingTopic({ ...editingTopic, title: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
+                  value={newEventTitle}
+                  onChange={e => setNewEventTitle(e.target.value)}
+                  placeholder="e.g. Lab Exam, Extra Math Practice, Mock Test"
+                  className="w-full"
                 />
               </div>
 
-              <div>
-                <label className="text-muted block mb-1">Estimated Effort (Minutes)</label>
-                <input
-                  type="number"
-                  min="15"
-                  max="300"
-                  step="15"
-                  value={editingTopic.estimated_minutes}
-                  onChange={(e) => setEditingTopic({ ...editingTopic, estimated_minutes: Number(e.target.value) })}
-                  className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Event Type:</label>
+                  <select value={newEventType} onChange={e => setNewEventType(e.target.value)} className="w-full">
+                    <option value="study">Academic Study</option>
+                    <option value="college">College Class / Lab</option>
+                    <option value="exam">Exam / Test</option>
+                    <option value="personal">Personal / Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Start Time:</label>
+                  <input
+                    type="time"
+                    value={newEventTime}
+                    onChange={e => setNewEventTime(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="text-muted block mb-1">Mastery Status</label>
-                <select
-                  value={editingTopic.mastery_level}
-                  onChange={(e) => setEditingTopic({ ...editingTopic, mastery_level: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-                >
-                  <option value="NOT_STARTED">Not Started (100% effort required)</option>
-                  <option value="STUDIED_ONCE">Studied Once (90% effort)</option>
-                  <option value="PARTIALLY_UNDERSTOOD">Partially Understood (80% effort)</option>
-                  <option value="NEEDS_REVISION">Needs Revision (60% effort)</option>
-                  <option value="CONFIDENT">Confident (25% effort)</option>
-                  <option value="MASTERED">Mastered Through Practice (0% first-pass effort)</option>
-                </select>
+                <label className="block text-slate-300 font-medium mb-1">Description / Notes:</label>
+                <textarea
+                  rows="2"
+                  value={newEventDesc}
+                  onChange={e => setNewEventDesc(e.target.value)}
+                  placeholder="Additional details..."
+                  className="w-full"
+                />
               </div>
             </div>
 
-            <div className="flex justify-end space-x-3 pt-2">
-              <button
-                onClick={() => setEditingTopic(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await window.StudyPilotAPI.updateTopic(editingTopic.id, {
-                      title: editingTopic.title,
-                      estimated_minutes: editingTopic.estimated_minutes,
-                      mastery_level: editingTopic.mastery_level
-                    });
-                    setEditingTopic(null);
-                    await loadSyllabus();
-                    await onRefresh();
-                    showToast('Topic updated successfully!', 'success');
-                  } catch (err) {
-                    showToast('Failed to update topic: ' + err.message, 'error');
-                  }
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow"
-              >
-                Save Changes
-              </button>
+            <div className="flex justify-end space-x-2 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <button onClick={() => setAddEventModalDate(null)} className="btn-secondary text-xs">Cancel</button>
+              <button onClick={handleCreateCustomEvent} className="btn-primary text-xs">Save Event</button>
             </div>
           </div>
         </div>
@@ -1100,495 +1304,389 @@ function SyllabusView({ subjects, onRefresh, showToast }) {
   );
 }
 
-// ----------------- SUBJECTS VIEW -----------------
+// ----------------- 3. COURSES & UNITS VIEW -----------------
 
-function SubjectsView({ subjects, onRefresh, showToast }) {
-  const [selectedSubject, setSelectedSubject] = useState(null);
+function CoursesUnitsView({ subjects, onRefresh, showToast }) {
+  const [activeCourseId, setActiveCourseId] = useState(subjects[0]?.id || null);
+  const [syllabusData, setSyllabusData] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
-  const loadDetails = async (id) => {
+  useEffect(() => {
+    if (activeCourseId) {
+      window.LastChanceAPI.getSyllabus(activeCourseId).then(res => {
+        setSyllabusData(res.units || []);
+      }).catch(e => console.error(e));
+    }
+  }, [activeCourseId]);
+
+  const activeCourse = subjects.find(s => s.id === activeCourseId);
+
+  const handleUpdateTopicMastery = async (topicId, newMastery) => {
     try {
-      const data = await window.StudyPilotAPI.getSubjectDetail(id);
-      setSelectedSubject(data);
-    } catch (err) {
-      showToast('Error loading subject: ' + err.message, 'error');
+      await window.LastChanceAPI.updateTopic(topicId, { mastery_level: newMastery });
+      // Refresh local syllabus
+      const res = await window.LastChanceAPI.getSyllabus(activeCourseId);
+      setSyllabusData(res.units || []);
+      showToast('Topic mastery status updated!');
+    } catch (e) {
+      showToast('Failed to update topic: ' + e.message, 'error');
     }
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold">Curriculum Subjects</h2>
-        <p className="text-xs text-muted">Subject examination dates, priority weightings, and unit-by-unit progress</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {subjects.map(s => {
-          const totalTopics = s.topics_count || 1;
-          const mastered = s.mastered_count || 0;
-          const pct = Math.round((mastered / totalTopics) * 100);
-
+      {/* 4 Course Tabs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {subjects.map(subj => {
+          const isSelected = subj.id === activeCourseId;
           return (
-            <div key={s.id} className="glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: s.color }}
-                    ></span>
-                    <span className="code-pill font-bold text-xs">{s.code}</span>
-                    <span className="text-xs text-muted font-medium">{s.credits} Credits • {s.total_lectures} Lectures</span>
-                  </div>
-                  <h3 className="text-base font-bold text-slate-100 mt-1">{s.name}</h3>
-                </div>
-
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                  s.priority === 'URGENT' ? 'bg-rose-500/20 text-rose-400' :
-                  s.priority === 'HIGH' ? 'bg-amber-500/20 text-amber-400' :
-                  'bg-slate-700/50 text-slate-300'
-                }`}>
-                  {s.priority} Priority
-                </span>
+            <div
+              key={subj.id}
+              onClick={() => setActiveCourseId(subj.id)}
+              className={`lc-card p-4 cursor-pointer transition-smooth border-l-4 ${
+                isSelected ? 'shadow-md' : 'opacity-85 hover:opacity-100'
+              }`}
+              style={{
+                borderLeftColor: subj.color || '#4f46e5',
+                backgroundColor: isSelected ? 'var(--bg-card-elevated)' : 'var(--bg-card)'
+              }}
+            >
+              <div className="text-[11px] font-bold font-mono" style={{ color: subj.color || '#4f46e5' }}>
+                {subj.code}
               </div>
-
-              {/* Progress Bar */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs text-muted">
-                  <span>Coverage & Mastery</span>
-                  <span className="font-semibold text-slate-300">{pct}% ({mastered}/{totalTopics})</span>
-                </div>
-                <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-smooth"
-                    style={{ width: `${pct}%`, backgroundColor: s.color }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 pt-2 text-center text-xs border-t border-subtle">
-                <div>
-                  <span className="text-muted block text-[10px]">Units</span>
-                  <span className="font-bold text-slate-200">{s.units_count} Units</span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[10px]">Est. Hours</span>
-                  <span className="font-bold text-slate-200">{Math.round((s.total_estimated_minutes || 0) / 60)}h</span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[10px]">Exam Date</span>
-                  <span className="font-bold text-indigo-400">{s.exam_date || 'TBD'}</span>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  onClick={() => loadDetails(s.id)}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-surface-elevated hover:bg-slate-700 text-slate-200 transition-smooth"
-                >
-                  View Units & Topics →
-                </button>
+              <h3 className="text-sm font-bold text-slate-100 truncate mt-0.5">{subj.name}</h3>
+              <div className="text-xs text-slate-400 mt-2 flex justify-between">
+                <span>{subj.credits} Credits • {subj.total_lectures} Lect</span>
+                <span>Exam: {subj.exam_date || 'TBD'}</span>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Subject Detail Drawer */}
-      {selectedSubject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
-          <div className="glass-panel p-6 rounded-2xl border border-subtle max-w-2xl w-full max-h-[85vh] overflow-y-auto space-y-4 shadow-2xl">
-            <div className="flex items-start justify-between border-b border-subtle pb-3">
-              <div>
-                <span className="code-pill font-bold text-xs">{selectedSubject.code}</span>
-                <h3 className="text-lg font-bold text-slate-100 mt-1">{selectedSubject.name}</h3>
-                <p className="text-xs text-muted">Examination Date: {selectedSubject.exam_date || 'Not announced'}</p>
-              </div>
-              <button
-                onClick={() => setSelectedSubject(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-100"
-              >
-                ✕
-              </button>
-            </div>
+      {/* Course Details & Unit Topics Hierarchy */}
+      <div className="lc-card p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4" style={{ borderColor: 'var(--border-color)' }}>
+          <div>
+            <h3 className="text-base font-bold text-slate-100">{activeCourse?.name} ({activeCourse?.code})</h3>
+            <p className="text-xs text-slate-400">Complete official university unit & topic breakdown</p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Search topics..."
+              className="text-xs"
+            />
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="text-xs">
+              <option value="ALL">All Status</option>
+              <option value="NOT_STARTED">Not Started</option>
+              <option value="CONFIDENT">Confident</option>
+              <option value="NEEDS_REVISION">Needs Revision</option>
+              <option value="MASTERED">Mastered</option>
+            </select>
+          </div>
+        </div>
 
-            <div className="space-y-4">
-              {selectedSubject.units?.map(u => (
-                <div key={u.id} className="p-4 rounded-xl bg-surface border border-subtle space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-slate-200">
-                      Unit {u.unit_number}: {u.title}
-                    </h4>
-                    <span className="text-[10px] text-muted">{u.lecture_allocation} Lectures</span>
+        {/* Units Accordion */}
+        <div className="space-y-4">
+          {syllabusData.length === 0 ? (
+            <p className="text-xs text-slate-400 py-8 text-center">Loading unit syllabus data...</p>
+          ) : (
+            syllabusData.map(unit => {
+              const filteredTopics = (unit.topics || []).filter(t => {
+                const matchSearch = t.title.toLowerCase().includes(searchTerm.toLowerCase());
+                const matchStatus = statusFilter === 'ALL' || t.mastery_level === statusFilter;
+                return matchSearch && matchStatus;
+              });
+
+              if (filteredTopics.length === 0 && searchTerm) return null;
+
+              return (
+                <div key={unit.id} className="p-4 rounded-xl border space-y-3" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                  <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-color)' }}>
+                    <div className="font-bold text-sm text-slate-200">
+                      Unit {unit.unit_number}: {unit.title}
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {unit.lecture_allocation} Lectures • {filteredTopics.length} Topics
+                    </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
-                    {u.topics?.map(t => (
-                      <div key={t.id} className="p-2 rounded-lg bg-surface-elevated text-xs flex justify-between items-center">
-                        <span className="truncate text-slate-300 pr-2">{t.title}</span>
-                        <span className="text-[10px] text-indigo-400 shrink-0 font-medium">{t.estimated_minutes}m</span>
+                  <div className="space-y-2.5">
+                    {filteredTopics.map(t => (
+                      <div key={t.id} className="p-3 rounded-lg border text-xs space-y-2" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-bold text-slate-100 text-sm">{t.title}</span>
+                          <div className="flex items-center space-x-2">
+                            <span className="font-mono text-slate-400 text-[11px]">⏱️ {t.estimated_minutes}m</span>
+                            <select
+                              value={t.mastery_level}
+                              onChange={e => handleUpdateTopicMastery(t.id, e.target.value)}
+                              className="text-[11px] font-semibold"
+                            >
+                              <option value="NOT_STARTED">Not Started</option>
+                              <option value="STUDIED_ONCE">Studied Once</option>
+                              <option value="PARTIALLY_UNDERSTOOD">Partially Understood</option>
+                              <option value="NEEDS_REVISION">Needs Revision</option>
+                              <option value="CONFIDENT">Confident</option>
+                              <option value="MASTERED">Mastered</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {t.subtopics?.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {t.subtopics.map((st, sIdx) => (
+                              <span key={sIdx} className="code-pill text-[10px]">{st}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ----------------- REVISION VIEW -----------------
-
-function RevisionView({ dates, onRefresh, showToast }) {
-  const [revisionData, setRevisionData] = useState(null);
-
-  const loadRevision = async () => {
-    try {
-      const data = await window.StudyPilotAPI.getRevision();
-      setRevisionData(data);
-    } catch (err) {
-      showToast('Error loading revision items: ' + err.message, 'error');
-    }
-  };
-
-  useEffect(() => {
-    loadRevision();
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold">Revision & Practice System</h2>
-        <p className="text-xs text-muted">Protected 7-day pre-exam revision buffer and active recall queue</p>
-      </div>
-
-      {/* Protected Buffer Info Box */}
-      <div className="glass-panel p-5 rounded-2xl border border-indigo-500/30 bg-indigo-950/20 space-y-2">
-        <div className="flex items-center space-x-2">
-          <span className="text-lg">🛡️</span>
-          <h3 className="font-bold text-sm text-indigo-300">Protected Final 7-Day Revision Buffer</h3>
-        </div>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          From <strong className="text-indigo-400">{dates?.first_pass_deadline_str}</strong> through{' '}
-          <strong className="text-indigo-400">{dates?.first_exam_str}</strong>, StudyPilot reserves daily study capacity
-          strictly for high-yield timed mock tests, formula sheets, weak concept reinforcement, and previous mistakes.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Weak Topics List */}
-        <div className="glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-          <div className="border-b border-subtle pb-2">
-            <h3 className="font-bold text-sm text-slate-100">Concepts Needing Reinforcement</h3>
-            <p className="text-xs text-muted">Flagged by low self-rated confidence or marked for review</p>
-          </div>
-
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {!revisionData?.weak_topics?.length ? (
-              <p className="text-xs text-muted py-6 text-center">No weak topics recorded yet. Mark confidence ratings during sessions.</p>
-            ) : (
-              revisionData.weak_topics.map(t => (
-                <div key={t.id} className="p-3 rounded-xl bg-surface border border-subtle flex items-center justify-between text-xs">
-                  <div>
-                    <h4 className="font-semibold text-slate-200">{t.title}</h4>
-                    <p className="text-[11px] text-muted">{t.subject_name}</p>
-                  </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                    Needs Review
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Scheduled Buffer Sessions */}
-        <div className="glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-          <div className="border-b border-subtle pb-2">
-            <h3 className="font-bold text-sm text-slate-100">Buffer Revision Sessions</h3>
-            <p className="text-xs text-muted">Sessions scheduled during the final 7 calendar days before exams</p>
-          </div>
-
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {!revisionData?.buffer_sessions?.length ? (
-              <p className="text-xs text-muted py-6 text-center">No buffer sessions populated yet. Generate schedule to populate buffer.</p>
-            ) : (
-              revisionData.buffer_sessions.map(s => (
-                <div key={s.id} className="p-3 rounded-xl bg-surface border border-subtle flex items-center justify-between text-xs">
-                  <div className="space-y-1">
-                    <span className="code-pill text-[10px]">{s.scheduled_date}</span>
-                    <h4 className="font-semibold text-slate-200">{s.topic_title}</h4>
-                    <p className="text-[10px] text-muted">{s.study_method}</p>
-                  </div>
-                  <span className="text-xs font-bold text-slate-300">{s.duration_minutes}m</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ----------------- ANALYTICS VIEW -----------------
-
-function AnalyticsView({ feasibility, dates }) {
-  const [analytics, setAnalytics] = useState(null);
-
-  useEffect(() => {
-    window.StudyPilotAPI.getAnalytics().then(setAnalytics).catch(console.error);
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold">Analytics & Study Performance</h2>
-        <p className="text-xs text-muted">Quantitative evaluation of first-pass coverage, remaining effort, and daily pace</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase">First-Pass Coverage</p>
-          <p className="text-2xl font-extrabold text-indigo-400 mt-1">
-            {feasibility ? Math.round((feasibility.completed_topics_count / (feasibility.total_topics_count || 1)) * 100) : 0}%
-          </p>
-          <p className="text-xs text-muted mt-1">{feasibility?.completed_topics_count} of {feasibility?.total_topics_count} topics covered</p>
-        </div>
-
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase">Remaining Workload</p>
-          <p className="text-2xl font-extrabold text-amber-400 mt-1">
-            {feasibility?.total_remaining_hours || 0} hrs
-          </p>
-          <p className="text-xs text-muted mt-1">~{feasibility?.remaining_topics_count} topics left to study</p>
-        </div>
-
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase">Available Capacity</p>
-          <p className="text-2xl font-extrabold text-emerald-400 mt-1">
-            {feasibility?.total_available_hours || 0} hrs
-          </p>
-          <p className="text-xs text-muted mt-1">before {dates?.first_pass_deadline_str}</p>
-        </div>
-
-        <div className="glass-panel p-4 rounded-xl border border-subtle">
-          <p className="text-xs text-muted font-medium uppercase">Daily Average Needed</p>
-          <p className="text-2xl font-extrabold text-slate-100 mt-1">
-            {Math.round((feasibility?.daily_average_needed_minutes || 0) / 60 * 10) / 10} hrs/day
-          </p>
-          <p className="text-xs text-muted mt-1">to meet the 7-day revision deadline</p>
-        </div>
-      </div>
-
-      {/* Subject-Wise Coverage Breakdown */}
-      <div className="glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-        <h3 className="font-bold text-sm text-slate-100">Subject Coverage Breakdown</h3>
-        <div className="space-y-3">
-          {analytics?.subjects_stats?.map(s => {
-            const pct = Math.round((s.mastered_topics / (s.total_topics || 1)) * 100);
-            return (
-              <div key={s.id} className="space-y-1.5 text-xs">
-                <div className="flex justify-between font-medium">
-                  <span className="text-slate-200">{s.code} - {s.name}</span>
-                  <span className="text-muted">{pct}% ({s.mastered_topics}/{s.total_topics} topics)</span>
-                </div>
-                <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-smooth"
-                    style={{ width: `${pct}%`, backgroundColor: s.color || '#6366f1' }}
-                  ></div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ----------------- STUDY HISTORY VIEW -----------------
-
-function HistoryView({ onRefresh }) {
-  const [historyData, setHistoryData] = useState({ history: [], change_logs: [] });
-
-  useEffect(() => {
-    window.StudyPilotAPI.getHistory().then(setHistoryData).catch(console.error);
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold">Study History & Adaptive Audit Log</h2>
-        <p className="text-xs text-muted">Complete record of completed work, partial progress, and schedule recalculation reasons</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Completed Work History */}
-        <div className="glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-          <h3 className="font-bold text-sm text-slate-100">Completed Sessions</h3>
-          <div className="space-y-2 max-h-[500px] overflow-y-auto">
-            {historyData.history.length === 0 ? (
-              <p className="text-xs text-muted py-8 text-center">No study sessions recorded yet.</p>
-            ) : (
-              historyData.history.map(item => (
-                <div key={item.id} className="p-3 rounded-xl bg-surface border border-subtle space-y-1 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-200">{item.topic_title}</span>
-                    <span className="code-pill text-[10px]">{item.scheduled_date}</span>
-                  </div>
-                  <div className="flex items-center space-x-3 text-[11px] text-muted">
-                    <span>{item.subject_name}</span>
-                    <span>• Spent: {item.actual_minutes}m</span>
-                    <span>• {item.completion_percentage}% done</span>
-                    {item.confidence_rating > 0 && <span>• Confidence: {'★'.repeat(item.confidence_rating)}</span>}
-                  </div>
-                  {item.notes && <p className="text-[11px] text-slate-300 italic pt-1">"{item.notes}"</p>}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Schedule Change Logs */}
-        <div className="glass-panel p-5 rounded-2xl border border-subtle space-y-4">
-          <h3 className="font-bold text-sm text-slate-100">Schedule Change Explanations (Audit Log)</h3>
-          <div className="space-y-2 max-h-[500px] overflow-y-auto">
-            {historyData.change_logs.length === 0 ? (
-              <p className="text-xs text-muted py-8 text-center">No schedule changes recorded yet.</p>
-            ) : (
-              historyData.change_logs.map(log => (
-                <div key={log.id} className="p-3 rounded-xl bg-surface border border-subtle space-y-1 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-indigo-400">{log.reason}</span>
-                    <span className="text-[10px] text-muted">{log.timestamp}</span>
-                  </div>
-                  <p className="text-slate-300 text-[11px] leading-relaxed">{log.changes_summary}</p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ----------------- IMPORT HANDOUTS VIEW -----------------
-
-function ImportView({ onRefresh, showToast, onSuccess }) {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [extractedData, setExtractedData] = useState(null);
-
-  const handleUpload = async (e) => {
-    e.preventDefault();
-    if (!selectedFile) return;
-    setIsUploading(true);
-    try {
-      const res = await window.StudyPilotAPI.uploadSyllabus(selectedFile);
-      setExtractedData(res.data);
-      showToast('Document parsed successfully! Review the extracted structure below.', 'success');
-    } catch (err) {
-      showToast('Upload error: ' + err.message, 'error');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleCommit = async () => {
-    if (!extractedData) return;
-    try {
-      const res = await window.StudyPilotAPI.commitSyllabus(extractedData);
-      showToast(`Imported ${res.topics_added} topics into course syllabus!`, 'success');
-      await onRefresh();
-      onSuccess();
-    } catch (err) {
-      showToast('Commit error: ' + err.message, 'error');
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold">Import Additional Syllabus & Handouts</h2>
-        <p className="text-xs text-muted">Upload course handouts, PDFs, Markdown, or text files for automatic local extraction</p>
-      </div>
-
-      {/* Upload Box */}
-      <div className="glass-panel p-6 rounded-2xl border border-subtle text-center space-y-4">
-        <input
-          type="file"
-          id="syllabus-file-input"
-          accept=".pdf,.txt,.md,.markdown"
-          onChange={(e) => setSelectedFile(e.target.files[0])}
-          className="hidden"
-        />
-
-        <div
-          onClick={() => document.getElementById('syllabus-file-input').click()}
-          className="border-2 border-dashed border-subtle hover:border-indigo-500/50 p-8 rounded-xl cursor-pointer transition-smooth space-y-2 bg-surface/30"
-        >
-          <div className="text-3xl">📄</div>
-          <p className="text-sm font-semibold text-slate-200">
-            {selectedFile ? selectedFile.name : 'Click to select PDF, Markdown, or Text handout'}
-          </p>
-          <p className="text-xs text-muted">Files are processed 100% locally on your computer with zero external API calls.</p>
-        </div>
-
-        {selectedFile && (
-          <button
-            onClick={handleUpload}
-            disabled={isUploading}
-            className="px-6 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-smooth"
-          >
-            {isUploading ? 'Extracting Structure...' : 'Extract Syllabus Structure'}
-          </button>
-        )}
-      </div>
-
-      {/* Extracted Review Screen */}
-      {extractedData && (
-        <div className="glass-panel p-6 rounded-2xl border border-subtle space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-subtle pb-4">
-            <div>
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Extraction Review</span>
-              <h3 className="text-base font-bold text-slate-100 mt-1">{extractedData.course_name} ({extractedData.course_code})</h3>
-            </div>
-            <button
-              onClick={handleCommit}
-              className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition-smooth"
-            >
-              ✓ Save & Merge into Syllabus
-            </button>
-          </div>
-
-          {/* Warnings / Duplicates */}
-          {extractedData.detected_duplicates?.length > 0 && (
-            <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-800 text-xs text-amber-200 space-y-1">
-              <strong>⚠️ Duplicate Topics Detected:</strong>
-              <p>{extractedData.detected_duplicates.join(', ')}</p>
-            </div>
+              );
+            })
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          <div className="space-y-4">
-            {extractedData.units?.map((u, uIdx) => (
-              <div key={uIdx} className="p-4 rounded-xl bg-surface border border-subtle space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-200">Unit {u.unit_number}: {u.title}</h4>
-                  <span className="text-[10px] text-muted">{u.topics?.length} topics</span>
-                </div>
+// ----------------- 4. DAILY DSA VIEW (2 COMPULSORY QUESTIONS) -----------------
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                  {u.topics?.map((t, tIdx) => (
-                    <div key={tIdx} className="p-2 rounded bg-surface-elevated text-xs flex justify-between">
-                      <span className="text-slate-300 truncate pr-2">{t.title}</span>
-                      <span className="text-indigo-400 font-medium shrink-0">{t.estimated_minutes}m</span>
+function DailyDSAView({ dailyDSA, onRefresh, showToast }) {
+  const [activeTab, setActiveTab] = useState('today'); // 'today' or 'all'
+  const [allQuestions, setAllQuestions] = useState([]);
+  const [hintsVisible, setHintsVisible] = useState({});
+  const [solutionVisible, setSolutionVisible] = useState({});
+  const [notesState, setNotesState] = useState({});
+  const [timeSpentState, setTimeSpentState] = useState({});
+
+  useEffect(() => {
+    if (activeTab === 'all') {
+      window.LastChanceAPI.getAllDSA().then(res => {
+        setAllQuestions(res.questions || []);
+      }).catch(e => console.error(e));
+    }
+  }, [activeTab]);
+
+  const assignments = dailyDSA?.assignments || [];
+
+  const handleUpdateStatus = async (assignmentId, status) => {
+    try {
+      await window.LastChanceAPI.updateDSAAssignment(assignmentId, {
+        status: status,
+        user_approach: notesState[assignmentId]?.approach || '',
+        mistakes_notes: notesState[assignmentId]?.mistakes || '',
+        time_spent_minutes: timeSpentState[assignmentId] || 25
+      });
+      await onRefresh();
+      showToast(`DSA question marked as ${status}!`, 'success');
+    } catch (e) {
+      showToast('Failed to update DSA status: ' + e.message, 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Daily DSA (Data Structures Practice)</h2>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Exactly 2 compulsory practice problems assigned daily from the university Data Structures syllabus.
+          </p>
+        </div>
+
+        <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border-color)' }}>
+          <button
+            onClick={() => setActiveTab('today')}
+            className={`px-3 py-1.5 text-xs font-semibold ${activeTab === 'today' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+          >
+            Today's 2 Questions
+          </button>
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`px-3 py-1.5 text-xs font-semibold ${activeTab === 'all' ? 'btn-primary' : 'bg-slate-800 text-slate-300'}`}
+          >
+            Question Bank ({allQuestions.length || '15+'})
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'today' ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {assignments.length === 0 ? (
+              <div className="col-span-2 lc-card p-8 text-center text-xs text-slate-400">
+                Loading today's assigned DSA questions...
+              </div>
+            ) : (
+              assignments.map((item, idx) => {
+                const q = item;
+                const isSolved = item.status === 'Solved';
+                return (
+                  <div key={item.id} className="lc-card p-5 space-y-4 flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          Problem #{idx + 1} • {q.topic}
+                        </span>
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${
+                          q.difficulty === 'Easy' ? 'bg-blue-500/10 text-blue-400' :
+                          q.difficulty === 'Medium' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'
+                        }`}>
+                          {q.difficulty}
+                        </span>
+                      </div>
+
+                      <h3 className="text-base font-bold text-slate-100">{q.title}</h3>
+
+                      <div className="p-3 rounded-lg border text-xs text-slate-300 leading-relaxed font-mono" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                        {q.problem_statement}
+                      </div>
+
+                      {q.concept && (
+                        <div className="text-xs text-slate-400">
+                          <strong className="text-slate-200">Core Concept:</strong> {q.concept}
+                        </div>
+                      )}
+
+                      {/* Progressive Hints Accordions */}
+                      <div className="space-y-1.5 pt-1">
+                        {q.hint_1 && (
+                          <div>
+                            <button
+                              onClick={() => setHintsVisible(p => ({ ...p, [`${item.id}_1`]: !p[`${item.id}_1`] }))}
+                              className="text-xs font-semibold text-indigo-400 hover:underline flex items-center space-x-1"
+                            >
+                              <span>{hintsVisible[`${item.id}_1`] ? '▼ Hide Hint 1' : '► Reveal Hint 1'}</span>
+                            </button>
+                            {hintsVisible[`${item.id}_1`] && (
+                              <p className="text-xs text-slate-300 p-2 rounded bg-slate-800/60 mt-1 border border-slate-700">
+                                💡 {q.hint_1}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {q.hint_2 && (
+                          <div>
+                            <button
+                              onClick={() => setHintsVisible(p => ({ ...p, [`${item.id}_2`]: !p[`${item.id}_2`] }))}
+                              className="text-xs font-semibold text-indigo-400 hover:underline flex items-center space-x-1"
+                            >
+                              <span>{hintsVisible[`${item.id}_2`] ? '▼ Hide Hint 2' : '► Reveal Hint 2'}</span>
+                            </button>
+                            {hintsVisible[`${item.id}_2`] && (
+                              <p className="text-xs text-slate-300 p-2 rounded bg-slate-800/60 mt-1 border border-slate-700">
+                                💡 {q.hint_2}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Solution & Code Reveal */}
+                        <div>
+                          <button
+                            onClick={() => setSolutionVisible(p => ({ ...p, [item.id]: !p[item.id] }))}
+                            className="text-xs font-bold text-amber-400 hover:underline flex items-center space-x-1 pt-1"
+                          >
+                            <span>{solutionVisible[item.id] ? '▼ Hide Explanation & Code' : '► Reveal Solution & Code'}</span>
+                          </button>
+                          {solutionVisible[item.id] && (
+                            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 mt-2 space-y-2 text-xs">
+                              <div className="text-slate-300 whitespace-pre-line">{q.solution_approach}</div>
+                              {q.solution_code && (
+                                <pre className="p-2.5 rounded bg-black/60 text-[11px] font-mono text-emerald-300 overflow-x-auto border border-slate-800">
+                                  {q.solution_code}
+                                </pre>
+                              )}
+                              <div className="flex justify-between text-[11px] text-slate-400 border-t border-slate-800 pt-1">
+                                <span>Time: {q.time_complexity || 'O(N)'}</span>
+                                <span>Space: {q.space_complexity || 'O(1)'}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Approach & Mistakes Recording */}
+                      <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                        <textarea
+                          rows="2"
+                          placeholder="Record your logic, approach, and invariants..."
+                          defaultValue={item.user_approach || ''}
+                          onChange={e => setNotesState(p => ({ ...p, [item.id]: { ...(p[item.id] || {}), approach: e.target.value } }))}
+                          className="w-full text-xs"
+                        />
+                        <textarea
+                          rows="1"
+                          placeholder="Mistakes, bugs or edge cases to remember..."
+                          defaultValue={item.mistakes_notes || ''}
+                          onChange={e => setNotesState(p => ({ ...p, [item.id]: { ...(p[item.id] || {}), mistakes: e.target.value } }))}
+                          className="w-full text-xs"
+                        />
+                      </div>
                     </div>
-                  ))}
+
+                    {/* Status Toggle Buttons */}
+                    <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        isSolved ? 'badge-success badge' : 'badge-warning badge'
+                      }`}>
+                        Status: {item.status}
+                      </span>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => handleUpdateStatus(item.id, 'Attempted')}
+                          className="px-2.5 py-1 text-xs rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold"
+                        >
+                          Attempted
+                        </button>
+                        <button
+                          onClick={() => handleUpdateStatus(item.id, 'Needs Revision')}
+                          className="px-2.5 py-1 text-xs rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 font-semibold"
+                        >
+                          Needs Revision
+                        </button>
+                        <button
+                          onClick={() => handleUpdateStatus(item.id, 'Solved')}
+                          className="px-3 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-500 font-bold shadow"
+                        >
+                          ✓ Solved
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="lc-card p-5 space-y-4">
+          <h3 className="text-sm font-bold text-slate-100">All DSA Syllabus Practice Problems</h3>
+          <div className="space-y-3">
+            {allQuestions.map(q => (
+              <div key={q.id} className="p-3.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400">
+                      {q.topic}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400">{q.difficulty}</span>
+                    {q.solve_count > 0 && <span className="badge badge-success text-[10px]">Solved {q.solve_count}x</span>}
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-200">{q.title}</h4>
+                  <p className="text-xs text-slate-400 line-clamp-1">{q.problem_statement}</p>
+                </div>
+                <div className="text-xs text-slate-400 font-mono shrink-0">
+                  Time: {q.time_complexity} • Space: {q.space_complexity}
                 </div>
               </div>
             ))}
@@ -1599,498 +1697,436 @@ function ImportView({ onRefresh, showToast, onSuccess }) {
   );
 }
 
-// ----------------- SETTINGS VIEW -----------------
+// ----------------- 5. ENGLISH SPEAKING IMPROVEMENT (30 MIN) -----------------
 
-function SettingsView({ settings, dates, onRefresh, showToast, onOpenOnboarding }) {
-  const [formData, setFormData] = useState(settings || {});
-  const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    if (settings) setFormData(settings);
-  }, [settings]);
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    setIsSaving(true);
-    try {
-      await window.StudyPilotAPI.updateSettings(formData);
-      await onRefresh();
-      showToast('Settings saved and deadlines recalculated.', 'success');
-    } catch (err) {
-      showToast('Save error: ' + err.message, 'error');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleExportBackup = async () => {
-    try {
-      const data = await window.StudyPilotAPI.exportBackup();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `studypilot_backup_${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast('Backup JSON downloaded successfully!', 'success');
-    } catch (err) {
-      showToast('Backup error: ' + err.message, 'error');
-    }
-  };
-
-  const handleRestoreBackup = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      await window.StudyPilotAPI.restoreBackup(data);
-      await onRefresh();
-      showToast('Backup restored successfully!', 'success');
-    } catch (err) {
-      showToast('Restore error: ' + err.message, 'error');
-    }
-  };
-
-  return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h2 className="text-lg font-bold">Planner Settings & Parameters</h2>
-        <p className="text-xs text-muted">Customise examination dates, study capacity, session lengths, and local backups</p>
-      </div>
-
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* Examination & Deadlines */}
-        <div className="glass-panel p-6 rounded-2xl border border-subtle space-y-4">
-          <h3 className="font-bold text-sm text-slate-100">Examination & Deadlines</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="text-muted block mb-1">First Examination Date</label>
-              <input
-                type="date"
-                value={formData.first_exam_date || '2026-11-26'}
-                onChange={(e) => setFormData({ ...formData, first_exam_date: e.target.value })}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-              <p className="text-[11px] text-muted mt-1">End-Semester first exam date</p>
-            </div>
-
-            <div>
-              <label className="text-muted block mb-1">Protected Revision Buffer (Days)</label>
-              <input
-                type="number"
-                min="3"
-                max="14"
-                value={formData.revision_buffer_days || 7}
-                onChange={(e) => setFormData({ ...formData, revision_buffer_days: Number(e.target.value) })}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-              <p className="text-[11px] text-muted mt-1">
-                Target Deadline: <strong className="text-indigo-400">{dates?.first_pass_deadline_str}</strong>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Daily Availability */}
-        <div className="glass-panel p-6 rounded-2xl border border-subtle space-y-4">
-          <h3 className="font-bold text-sm text-slate-100">Daily Study Capacity</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="text-muted block mb-1">Weekday Study Minutes ({Math.round((formData.weekday_minutes || 180) / 60)}h)</label>
-              <input
-                type="number"
-                min="60"
-                max="480"
-                step="30"
-                value={formData.weekday_minutes || 180}
-                onChange={(e) => setFormData({ ...formData, weekday_minutes: Number(e.target.value) })}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-            </div>
-
-            <div>
-              <label className="text-muted block mb-1">Weekend Study Minutes ({Math.round((formData.weekend_minutes || 300) / 60)}h)</label>
-              <input
-                type="number"
-                min="60"
-                max="600"
-                step="30"
-                value={formData.weekend_minutes || 300}
-                onChange={(e) => setFormData({ ...formData, weekend_minutes: Number(e.target.value) })}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center pt-2">
-          <button
-            type="button"
-            onClick={onOpenOnboarding}
-            className="px-4 py-2 rounded-xl text-xs font-semibold bg-surface-elevated text-slate-300 hover:text-white"
-          >
-            Launch Setup Wizard
-          </button>
-
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="px-6 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-smooth"
-          >
-            {isSaving ? 'Saving...' : 'Save Settings'}
-          </button>
-        </div>
-      </form>
-
-      {/* Backup & Restore Panel */}
-      <div className="glass-panel p-6 rounded-2xl border border-subtle space-y-4">
-        <h3 className="font-bold text-sm text-slate-100">Local-First Backup & Restore</h3>
-        <p className="text-xs text-muted">
-          Your entire syllabus, study history, schedules, and custom settings are stored locally in SQLite. You can back up or transfer everything via JSON.
-        </p>
-
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          <button
-            onClick={handleExportBackup}
-            className="px-4 py-2 rounded-xl text-xs font-semibold bg-surface border border-subtle hover:bg-surface-elevated text-slate-200"
-          >
-            ⬇️ Export JSON Backup
-          </button>
-
-          <label className="px-4 py-2 rounded-xl text-xs font-semibold bg-surface border border-subtle hover:bg-surface-elevated text-slate-200 cursor-pointer">
-            ⬆️ Restore from JSON
-            <input type="file" accept=".json" onChange={handleRestoreBackup} className="hidden" />
-          </label>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ----------------- FOCUS STUDY SESSION MODAL -----------------
-
-function FocusSessionModal({ task, onClose, onFinish, showToast }) {
-  const [secondsLeft, setSecondsLeft] = useState(task.duration_minutes * 60);
-  const [isRunning, setIsRunning] = useState(true);
-  const [isBreak, setIsBreak] = useState(false);
-  const [sessionNotes, setSessionNotes] = useState('');
-  const [isFinishing, setIsFinishing] = useState(false);
-  const [completionPct, setCompletionPct] = useState(100);
-  const [confidence, setConfidence] = useState(4);
-
-  const initialSeconds = task.duration_minutes * 60;
+function EnglishSpeakingView({ englishToday, onRefresh, showToast }) {
+  const [timerSeconds, setTimerSeconds] = useState(englishToday?.log?.time_spent_seconds || 0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [notes, setNotes] = useState(englishToday?.log?.notes || '');
+  const [history, setHistory] = useState([]);
 
   useEffect(() => {
-    let timer = null;
-    if (isRunning && secondsLeft > 0) {
-      timer = setInterval(() => {
-        setSecondsLeft(prev => prev - 1);
+    window.LastChanceAPI.getEnglishHistory().then(res => setHistory(res.history || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let interval = null;
+    if (timerRunning) {
+      interval = setInterval(() => {
+        setTimerSeconds(s => s + 1);
       }, 1000);
+    } else {
+      clearInterval(interval);
     }
-    return () => clearInterval(timer);
-  }, [isRunning, secondsLeft]);
+    return () => clearInterval(interval);
+  }, [timerRunning]);
 
-  const formatTime = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  const topic = englishToday?.topic;
+  const isCompleted = englishToday?.log?.is_completed || false;
+
+  const formatTimer = (totalSec) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  const handleFinishConfirm = async () => {
-    const elapsedSeconds = initialSeconds - secondsLeft;
-    const actualMinutes = Math.max(1, Math.round(elapsedSeconds / 60));
+  const handleSaveLog = async (markComplete = false) => {
     try {
-      await window.StudyPilotAPI.completeTask(task.id, {
-        status: completionPct >= 100 ? 'COMPLETED' : 'PARTIALLY_COMPLETED',
-        completion_percentage: completionPct,
-        actual_minutes: actualMinutes,
-        confidence_rating: confidence,
-        notes: sessionNotes
+      await window.LastChanceAPI.saveEnglishLog({
+        log_date: englishToday?.date || new Date().toISOString().split('T')[0],
+        topic_id: topic?.id,
+        time_spent_seconds: timerSeconds,
+        is_completed: markComplete || (timerSeconds >= 1800),
+        notes: notes
       });
-      onFinish();
-    } catch (err) {
-      showToast('Error saving session: ' + err.message, 'error');
+      await onRefresh();
+      showToast(markComplete ? '30-minute English speaking session saved as completed!' : 'Session progress saved!');
+    } catch (e) {
+      showToast('Failed to save log: ' + e.message, 'error');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
-      <div className="glass-panel p-6 rounded-3xl border border-subtle max-w-lg w-full space-y-6 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-subtle pb-3">
-          <div>
-            <span
-              className="text-[10px] font-bold px-2 py-0.5 rounded text-white"
-              style={{ backgroundColor: task.subject_color }}
-            >
-              {task.subject_code}
-            </span>
-            <h3 className="font-bold text-base text-slate-100 mt-1">{task.topic_title}</h3>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-100">
-            ✕
-          </button>
-        </div>
-
-        {/* Big Timer Display */}
-        <div className="text-center py-4 space-y-2">
-          <div className="text-5xl font-mono font-extrabold tracking-wider text-slate-100">
-            {formatTime(secondsLeft)}
-          </div>
-          <p className="text-xs text-muted">
-            {isBreak ? '☕ Break Session' : `🎯 Focused Study: ${task.study_method}`}
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>English Speaking Improvement</h2>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Daily 30-minute speaking practice scheduled separately outside the 4-hour academic target.
           </p>
         </div>
-
-        {/* Timer Controls */}
-        <div className="flex justify-center items-center space-x-3">
-          <button
-            onClick={() => setIsRunning(!isRunning)}
-            className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow"
-          >
-            {isRunning ? '⏸️ Pause' : '▶️ Resume'}
-          </button>
-          <button
-            onClick={() => {
-              setIsBreak(!isBreak);
-              setSecondsLeft(isBreak ? task.duration_minutes * 60 : 5 * 60);
-            }}
-            className="px-4 py-2 rounded-xl text-xs font-semibold bg-surface border border-subtle text-slate-300"
-          >
-            {isBreak ? 'Back to Study' : 'Take 5m Break'}
-          </button>
-          <button
-            onClick={() => setIsFinishing(true)}
-            className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow"
-          >
-            ✓ Finish Session
-          </button>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-full">
+            🔥 {englishToday?.streak_days || 0} Day Streak
+          </span>
         </div>
+      </div>
 
-        {/* Objectives / Suggested Plan */}
-        <div className="bg-surface/60 p-3.5 rounded-xl border border-subtle text-xs space-y-2">
-          <div>
-            <strong className="text-indigo-400">Objectives:</strong>
-            <p className="text-slate-300 whitespace-pre-line mt-0.5">{task.learning_objectives}</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Cols: Daily Topic & Prompt */}
+        <div className="lg:col-span-2 lc-card p-5 space-y-4">
+          <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+            <div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 uppercase tracking-wider">
+                Today's Topic • {topic?.category || 'General'}
+              </span>
+              <h3 className="text-lg font-bold text-slate-100 mt-1">{topic?.title || 'Daily Speaking Practice'}</h3>
+            </div>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+              isCompleted ? 'badge-success badge' : 'badge-warning badge'
+            }`}>
+              {isCompleted ? '✓ Completed Today' : 'Pending 30m'}
+            </span>
           </div>
-          <div className="border-t border-subtle pt-2">
-            <strong className="text-slate-400">Breakdown:</strong>
-            <p className="text-slate-300">{task.suggested_breakdown}</p>
+
+          <div className="p-3.5 rounded-lg border text-xs space-y-1.5" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+            <div className="font-bold text-indigo-400">Objective:</div>
+            <p className="text-slate-300 leading-relaxed">{topic?.objective}</p>
           </div>
-        </div>
 
-        {/* Scratchpad Notes */}
-        <div>
-          <label className="text-xs text-muted block mb-1">Session Scratchpad</label>
-          <textarea
-            rows="2"
-            value={sessionNotes}
-            onChange={(e) => setSessionNotes(e.target.value)}
-            placeholder="Jot down active recall items, formulas, or tricky edge cases..."
-            className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-xs text-slate-100"
-          />
-        </div>
-
-        {/* Finish Confirmation Dialog */}
-        {isFinishing && (
-          <div className="p-4 rounded-xl bg-surface border border-indigo-500/40 space-y-3">
-            <h4 className="font-bold text-xs text-indigo-300">Session Evaluation</h4>
-            <div className="space-y-2 text-xs">
-              <div>
-                <label className="text-muted block">Completion: {completionPct}%</label>
-                <input
-                  type="range"
-                  min="10"
-                  max="100"
-                  step="10"
-                  value={completionPct}
-                  onChange={(e) => setCompletionPct(Number(e.target.value))}
-                  className="w-full accent-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-muted block mb-1">Confidence Rating</label>
-                <div className="flex space-x-2">
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setConfidence(star)}
-                      className={`px-2.5 py-1 rounded text-xs border ${
-                        confidence >= star ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-surface border-subtle text-muted'
-                      }`}
-                    >
-                      ★ {star}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  onClick={() => setIsFinishing(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-slate-400"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleFinishConfirm}
-                  className="px-4 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white"
-                >
-                  Confirm & Save
-                </button>
+          {/* Suggested Vocabulary */}
+          {topic?.vocabulary?.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-bold text-slate-300">Suggested Vocabulary & Phrases:</div>
+              <div className="flex flex-wrap gap-1.5">
+                {topic.vocabulary.map((v, i) => (
+                  <span key={i} className="code-pill text-xs font-semibold">{v}</span>
+                ))}
               </div>
             </div>
+          )}
+
+          {/* Speaking Prompts */}
+          {topic?.speaking_prompts?.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-300">Speaking Prompts & Questions to Answer Aloud:</div>
+              <div className="space-y-1.5">
+                {topic.speaking_prompts.map((p, i) => (
+                  <div key={i} className="text-xs p-2 rounded bg-slate-800/40 border border-slate-700/50 text-slate-300 flex items-start space-x-2">
+                    <span className="text-indigo-400 font-bold">{i + 1}.</span>
+                    <span>{p}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Speech Notes & Observations */}
+          <div className="space-y-1.5 pt-2">
+            <label className="block text-xs font-bold text-slate-300">Speech Notes, Grammar & Fluency Observations:</label>
+            <textarea
+              rows="3"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Record points you discussed, pronunciation doubts, or vocabulary you used..."
+              className="w-full text-xs"
+            />
           </div>
+        </div>
+
+        {/* Right 1 Col: Speaking Timer & History */}
+        <div className="space-y-6">
+          {/* Speaking Timer Box */}
+          <div className="lc-card p-5 space-y-4 text-center">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Practice Timer</h3>
+            <div className="text-4xl font-black font-mono tracking-tight text-slate-100 py-2">
+              {formatTimer(timerSeconds)}
+            </div>
+            <div className="text-xs text-slate-400 font-medium">Target: 30:00 minutes</div>
+
+            <div className="flex items-center justify-center space-x-2 pt-2">
+              <button
+                onClick={() => setTimerRunning(!timerRunning)}
+                className={`px-4 py-2 rounded-lg text-xs font-bold ${
+                  timerRunning ? 'bg-amber-600 text-white' : 'btn-primary'
+                }`}
+              >
+                {timerRunning ? '⏸️ Pause Timer' : '▶️ Start Speaking'}
+              </button>
+              <button
+                onClick={() => { setTimerRunning(false); setTimerSeconds(0); }}
+                className="px-3 py-2 rounded-lg text-xs font-medium btn-secondary"
+              >
+                Reset
+              </button>
+            </div>
+
+            <div className="pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <button
+                onClick={() => handleSaveLog(true)}
+                className="w-full py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 shadow transition-smooth"
+              >
+                ✓ Mark 30m Practice Completed
+              </button>
+            </div>
+          </div>
+
+          {/* Recent History Table */}
+          <div className="lc-card p-4 space-y-3">
+            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Recent Practice Log</h4>
+            <div className="space-y-2 text-xs max-h-48 overflow-y-auto pr-1">
+              {history.length === 0 ? (
+                <p className="text-[11px] text-slate-500 text-center py-4">No past logs recorded.</p>
+              ) : (
+                history.slice(0, 7).map((h, i) => (
+                  <div key={i} className="p-2 rounded border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                    <div>
+                      <div className="font-semibold text-slate-300">{h.log_date}</div>
+                      <div className="text-[10px] text-slate-400">{h.topic_title || 'Practice Session'}</div>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-[10px] font-bold ${h.is_completed ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {Math.floor(h.time_spent_seconds / 60)} mins
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------- 6. REVISION PLANNER VIEW -----------------
+
+function RevisionPlannerView({ dates, onRefresh, showToast }) {
+  const [revisionData, setRevisionData] = useState(null);
+
+  useEffect(() => {
+    window.LastChanceAPI.getRevision().then(res => setRevisionData(res)).catch(() => {});
+  }, []);
+
+  const weakTopics = revisionData?.weak_topics || [];
+  const bufferSessions = revisionData?.buffer_sessions || [];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Revision Planner & Buffer Protection</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Systematic spaced review queue and the 7-day pre-exam protected revision buffer
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Weak Topics Queue */}
+        <div className="lc-card p-5 space-y-4">
+          <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+            <div>
+              <h3 className="text-sm font-bold text-slate-100">Weak / Low-Confidence Topics</h3>
+              <p className="text-xs text-slate-400">Topics needing revision before first-pass deadline</p>
+            </div>
+            <span className="badge badge-warning">{weakTopics.length} Topics</span>
+          </div>
+
+          <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+            {weakTopics.length === 0 ? (
+              <p className="text-xs text-slate-400 py-8 text-center">No topics currently marked as weak. Great job!</p>
+            ) : (
+              weakTopics.map(t => (
+                <div key={t.id} className="p-3 rounded-lg border space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: t.subject_color || '#4f46e5' }}>
+                      {t.subject_name}
+                    </span>
+                    <span className="text-[10px] font-bold text-amber-400">{t.mastery_level}</span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-200">{t.title}</div>
+                  <div className="text-[10px] text-slate-400">Confidence Score: {t.lowest_confidence}/5</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 7-Day Protected Pre-Exam Buffer */}
+        <div className="lc-card p-5 space-y-4">
+          <div className="border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 uppercase tracking-wider">
+              Protected 7-Day Buffer
+            </span>
+            <h3 className="text-sm font-bold text-slate-100 mt-1">
+              Revision Buffer ({dates?.first_pass_deadline_str} to {dates?.first_exam_str})
+            </h3>
+            <p className="text-xs text-slate-400">
+              Guarantees zero new syllabus topics are scheduled during the final 7 days before exams.
+            </p>
+          </div>
+
+          <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+            {bufferSessions.length === 0 ? (
+              <p className="text-xs text-slate-400 py-8 text-center">
+                Buffer sessions will appear here as the final 7-day revision schedule is compiled.
+              </p>
+            ) : (
+              bufferSessions.map((s, idx) => (
+                <div key={idx} className="p-3 rounded-lg border space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                  <div className="flex items-center justify-between text-xs font-bold text-indigo-400">
+                    <span>{s.scheduled_date}</span>
+                    <span className="text-white text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: s.subject_color }}>
+                      {s.subject_name}
+                    </span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-200">{s.topic_title}</div>
+                  <div className="text-[11px] text-slate-400">⏱️ {s.duration_minutes}m Revision</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------- 7. EXTRA TIME VIEW -----------------
+
+function ExtraTimeView({ onNavigate, onStartSession, showToast }) {
+  const [recommendations, setRecommendations] = useState([]);
+
+  useEffect(() => {
+    window.LastChanceAPI.getExtraTime().then(res => {
+      setRecommendations(res.recommendations || []);
+    }).catch(e => console.error(e));
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Have Extra Time? Do This Next</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Workload-aware optional productivity recommendations prioritized after reviewing overdue tasks, weak topics, and daily targets.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {recommendations.length === 0 ? (
+          <div className="col-span-2 lc-card p-10 text-center space-y-2">
+            <div className="text-3xl">☕</div>
+            <h3 className="text-base font-bold text-slate-200">No Extra Work Recommended</h3>
+            <p className="text-xs text-slate-400">
+              All your daily commitments and review queues are satisfied. Get rest and sleep well to maintain high cognitive retention!
+            </p>
+          </div>
+        ) : (
+          recommendations.map((rec, idx) => (
+            <div key={idx} className="lc-card p-5 space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded text-white" style={{ backgroundColor: rec.color || '#4f46e5' }}>
+                    {rec.category}
+                  </span>
+                  <span className="text-xs font-mono text-slate-400">⏱️ {rec.estimated_minutes} mins</span>
+                </div>
+                <h4 className="text-sm font-bold text-slate-100">{rec.title}</h4>
+                <p className="text-xs text-slate-300 leading-relaxed">{rec.reason}</p>
+              </div>
+
+              <div className="pt-2 border-t flex justify-end" style={{ borderColor: 'var(--border-color)' }}>
+                {rec.action_type === 'DSA_NAV' && (
+                  <button onClick={() => onNavigate('dsa')} className="btn-primary text-xs font-bold">
+                    Open DSA Questions →
+                  </button>
+                )}
+                {rec.action_type === 'ENGLISH_NAV' && (
+                  <button onClick={() => onNavigate('english')} className="btn-primary text-xs font-bold">
+                    Open English Practice →
+                  </button>
+                )}
+                {rec.action_type === 'STUDY_TASK' && (
+                  <button onClick={() => onStartSession({ id: rec.target_id, topic_title: rec.title, duration_minutes: rec.estimated_minutes })} className="btn-primary text-xs font-bold">
+                    Start Catch-up Session →
+                  </button>
+                )}
+                {rec.action_type === 'TOPIC_REVIEW' && (
+                  <button onClick={() => onNavigate('courses')} className="btn-secondary text-xs font-bold">
+                    Inspect in Syllabus →
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
         )}
       </div>
     </div>
   );
 }
 
-// ----------------- ONBOARDING WIZARD -----------------
+// ----------------- 8. PROGRESS & ANALYTICS VIEW -----------------
 
-function OnboardingModal({ settings, onClose, onComplete, showToast }) {
-  const [step, setStep] = useState(1);
-  const [examDate, setExamDate] = useState(settings?.first_exam_date || '2026-11-26');
-  const [bufferDays, setBufferDays] = useState(settings?.revision_buffer_days || 7);
-  const [weekdayMins, setWeekdayMins] = useState(settings?.weekday_minutes || 180);
-  const [weekendMins, setWeekendMins] = useState(settings?.weekend_minutes || 300);
+function AnalyticsView({ feasibility, onRefresh, showToast }) {
+  const [analyticsData, setAnalyticsData] = useState(null);
 
-  const handleFinishOnboarding = async () => {
-    try {
-      await window.StudyPilotAPI.updateSettings({
-        first_exam_date: examDate,
-        revision_buffer_days: bufferDays,
-        weekday_minutes: weekdayMins,
-        weekend_minutes: weekendMins,
-        onboarding_completed: true
-      });
-      // Generate initial schedule
-      await window.StudyPilotAPI.generateSchedule(false);
-      onComplete();
-    } catch (err) {
-      showToast('Onboarding error: ' + err.message, 'error');
-    }
-  };
+  useEffect(() => {
+    window.LastChanceAPI.getAnalytics().then(res => setAnalyticsData(res)).catch(() => {});
+  }, []);
+
+  const subjectsStats = analyticsData?.subjects_stats || [];
+  const dailyHistory = analyticsData?.daily_history || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
-      <div className="glass-panel p-6 rounded-3xl border border-subtle max-w-lg w-full space-y-6 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-subtle pb-3">
-          <div>
-            <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Step {step} of 3</span>
-            <h3 className="font-bold text-base text-slate-100 mt-0.5">Welcome to StudyPilot</h3>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Progress & Learning Analytics</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Real stored metrics: academic study time vs commitments, course completion, and workload trajectory
+        </p>
+      </div>
+
+      {/* Feasibility Summary Banner */}
+      {feasibility && (
+        <div className="lc-card p-5 space-y-3 border-l-4 border-indigo-500">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Feasibility Status</span>
+              <h3 className="text-base font-bold text-slate-100">{feasibility.status_label.replace('_', ' ')}</h3>
+            </div>
+            <span className="text-sm font-bold text-slate-200">
+              Capacity Utilization: {feasibility.capacity_utilization_percent}%
+            </span>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-100">
-            ✕
-          </button>
+          <p className="text-xs text-slate-300">{feasibility.warning_message}</p>
         </div>
+      )}
 
-        {step === 1 && (
-          <div className="space-y-4 text-xs">
-            <p className="text-slate-300 leading-relaxed">
-              StudyPilot guarantees complete syllabus coverage and protects a 7-day revision buffer before your examinations.
-            </p>
-            <div>
-              <label className="text-muted block mb-1">First Examination Date</label>
-              <input
-                type="date"
-                value={examDate}
-                onChange={(e) => setExamDate(e.target.value)}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-            </div>
-            <div>
-              <label className="text-muted block mb-1">Revision Buffer (Calendar Days)</label>
-              <input
-                type="number"
-                min="3"
-                max="14"
-                value={bufferDays}
-                onChange={(e) => setBufferDays(Number(e.target.value))}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4 text-xs">
-            <p className="text-slate-300 leading-relaxed">
-              Realistic scheduling: StudyPilot will never schedule more work than your configured daily availability.
-            </p>
-            <div>
-              <label className="text-muted block mb-1">Weekday Study Minutes ({Math.round(weekdayMins / 60)} hours/day)</label>
-              <input
-                type="number"
-                min="60"
-                max="480"
-                step="30"
-                value={weekdayMins}
-                onChange={(e) => setWeekdayMins(Number(e.target.value))}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-            </div>
-            <div>
-              <label className="text-muted block mb-1">Weekend Study Minutes ({Math.round(weekendMins / 60)} hours/day)</label>
-              <input
-                type="number"
-                min="60"
-                max="600"
-                step="30"
-                value={weekendMins}
-                onChange={(e) => setWeekendMins(Number(e.target.value))}
-                className="w-full p-2.5 rounded-xl bg-surface border border-subtle text-slate-100"
-              />
-            </div>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-4 text-xs">
-            <p className="text-slate-300 leading-relaxed">
-              You are ready! When you click below, StudyPilot's deterministic scheduling engine will calculate your topic prerequisites, assess feasibility, and generate your custom daily study plan.
-            </p>
-            <div className="p-3 rounded-xl bg-surface border border-subtle space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted">First Examination:</span>
-                <span className="font-bold text-indigo-400">{examDate}</span>
+      {/* Course Completion Breakdown */}
+      <div className="lc-card p-5 space-y-4">
+        <h3 className="text-sm font-bold text-slate-100">Course Completion by Topics</h3>
+        <div className="space-y-3">
+          {subjectsStats.map(s => {
+            const pct = s.total_topics > 0 ? Math.round((s.mastered_topics / s.total_topics) * 100) : 0;
+            return (
+              <div key={s.id} className="space-y-1 text-xs">
+                <div className="flex justify-between font-semibold">
+                  <span style={{ color: s.color || '#4f46e5' }}>{s.code}: {s.name}</span>
+                  <span className="text-slate-300">{s.mastered_topics} / {s.total_topics} topics ({pct}%)</span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                  <div className="h-2 rounded-full transition-smooth" style={{ width: `${pct}%`, backgroundColor: s.color || '#4f46e5' }}></div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted">Revision Buffer:</span>
-                <span className="font-bold text-emerald-400">{bufferDays} calendar days</span>
-              </div>
-            </div>
-          </div>
-        )}
+            );
+          })}
+        </div>
+      </div>
 
-        <div className="flex justify-between items-center pt-2 border-t border-subtle">
-          {step > 1 ? (
-            <button
-              onClick={() => setStep(step - 1)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-slate-200"
-            >
-              ← Back
-            </button>
-          ) : <div></div>}
-
-          {step < 3 ? (
-            <button
-              onClick={() => setStep(step + 1)}
-              className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow"
-            >
-              Continue →
-            </button>
+      {/* Daily Study Consistency */}
+      <div className="lc-card p-5 space-y-4">
+        <h3 className="text-sm font-bold text-slate-100">Recent Completed Study History (Last 14 Days)</h3>
+        <div className="space-y-2 text-xs">
+          {dailyHistory.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">No past study sessions completed yet.</p>
           ) : (
-            <button
-              onClick={handleFinishOnboarding}
-              className="px-6 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow"
-            >
-              🚀 Generate My Study Plan
-            </button>
+            dailyHistory.map((d, i) => (
+              <div key={i} className="p-2.5 rounded border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <span className="font-bold text-slate-200">{d.scheduled_date}</span>
+                <span className="text-slate-300">{d.tasks_count} tasks</span>
+                <span className="font-mono text-indigo-400 font-bold">{d.total_actual_minutes} actual mins</span>
+              </div>
+            ))
           )}
         </div>
       </div>
@@ -2098,7 +2134,425 @@ function OnboardingModal({ settings, onClose, onComplete, showToast }) {
   );
 }
 
-// Mount React Root
-const rootElement = document.getElementById('root');
-const root = ReactDOM.createRoot(rootElement);
+// ----------------- 9. STUDY HISTORY VIEW -----------------
+
+function StudyHistoryView({ showToast }) {
+  const [historyItems, setHistoryItems] = useState([]);
+  const [changeLogs, setChangeLogs] = useState([]);
+
+  useEffect(() => {
+    window.LastChanceAPI.getHistory().then(res => {
+      setHistoryItems(res.history || []);
+      setChangeLogs(res.change_logs || []);
+    }).catch(e => console.error(e));
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Study History & Audit Logs</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Historical record of all completed tasks, sessions, and schedule adaptations. Never overwritten.
+        </p>
+      </div>
+
+      <div className="lc-card p-5 space-y-4">
+        <h3 className="text-sm font-bold text-slate-100">Completed Sessions</h3>
+        <div className="space-y-2 text-xs">
+          {historyItems.length === 0 ? (
+            <p className="text-xs text-slate-400 py-6 text-center">No study history recorded yet.</p>
+          ) : (
+            historyItems.map(item => (
+              <div key={item.id} className="p-3 rounded-lg border space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-[10px] px-2 py-0.5 rounded" style={{ backgroundColor: item.subject_color || '#4f46e5' }}>
+                    {item.subject_name}
+                  </span>
+                  <span className="text-slate-400 font-mono text-[11px]">{item.scheduled_date}</span>
+                </div>
+                <div className="font-bold text-slate-200">{item.topic_title}</div>
+                <div className="flex justify-between text-slate-400 text-[11px]">
+                  <span>Actual: {item.actual_minutes}m (Planned: {item.duration_minutes}m)</span>
+                  <span>Confidence: {item.confidence_rating}/5</span>
+                </div>
+                {item.notes && <p className="text-[11px] text-slate-300 italic pt-1">Notes: "{item.notes}"</p>}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------- 10. HANDOUT IMPORT VIEW -----------------
+
+function HandoutImportView({ onRefresh, showToast }) {
+  const [file, setFile] = useState(null);
+  const [parsing, setParsing] = useState(false);
+  const [extractedData, setExtractedData] = useState(null);
+
+  const handleUpload = async () => {
+    if (!file) {
+      showToast('Please select a file to import', 'error');
+      return;
+    }
+    setParsing(true);
+    try {
+      const res = await window.LastChanceAPI.uploadSyllabus(file);
+      setExtractedData(res.data);
+      showToast('Syllabus text parsed successfully!', 'success');
+    } catch (e) {
+      showToast('Failed to parse syllabus: ' + e.message, 'error');
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!extractedData) return;
+    try {
+      await window.LastChanceAPI.commitSyllabus(extractedData);
+      setExtractedData(null);
+      setFile(null);
+      await onRefresh();
+      showToast('Imported syllabus committed to database!', 'success');
+    } catch (e) {
+      showToast('Failed to commit syllabus: ' + e.message, 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Handout & Syllabus Import</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Import course syllabus documents (PDF, TXT, MD) with automatic unit and topic extraction
+        </p>
+      </div>
+
+      <div className="lc-card p-6 space-y-4">
+        <div className="border-2 border-dashed rounded-xl p-8 text-center space-y-3" style={{ borderColor: 'var(--border-color)' }}>
+          <div className="text-3xl">📥</div>
+          <div className="text-sm font-bold text-slate-200">Select Syllabus Document</div>
+          <p className="text-xs text-slate-400">Supported formats: PDF, TXT, Markdown (.md)</p>
+          <input
+            type="file"
+            accept=".pdf,.txt,.md"
+            onChange={e => setFile(e.target.files[0])}
+            className="text-xs"
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={handleUpload}
+            disabled={!file || parsing}
+            className="btn-primary text-xs font-bold"
+          >
+            {parsing ? 'Parsing Document...' : 'Upload & Parse Document'}
+          </button>
+        </div>
+
+        {extractedData && (
+          <div className="p-4 rounded-xl border space-y-3 mt-4" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+            <h3 className="text-sm font-bold text-slate-100">Parsed Syllabus Preview</h3>
+            <div className="text-xs text-slate-300">
+              <strong>Course:</strong> {extractedData.course_name} ({extractedData.course_code})
+            </div>
+            <div className="text-xs text-slate-400">
+              Extracted {extractedData.units?.length || 0} Units.
+            </div>
+            <button onClick={handleCommit} className="btn-primary text-xs font-bold">
+              Commit to Syllabus Database
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ----------------- 11. SETTINGS VIEW -----------------
+
+function SettingsView({ settings, onRefresh, showToast }) {
+  const [formData, setFormData] = useState(settings || {});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (settings) setFormData(settings);
+  }, [settings]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await window.LastChanceAPI.updateSettings(formData);
+      await onRefresh();
+      showToast('Settings saved successfully!', 'success');
+    } catch (e) {
+      showToast('Failed to save settings: ' + e.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    try {
+      const data = await window.LastChanceAPI.exportBackup();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `last_chance_backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      showToast('Backup exported successfully!', 'success');
+    } catch (e) {
+      showToast('Failed to export backup: ' + e.message, 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Application Settings</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Configure study targets, college timetables, special holiday breaks, and database backups.
+        </p>
+      </div>
+
+      <div className="lc-card p-6 space-y-6">
+        {/* Core Daily Targets */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-indigo-400 uppercase tracking-wider">Core Daily Targets</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Academic Study Target (minutes):</label>
+              <input
+                type="number"
+                value={formData.daily_academic_target_minutes || 240}
+                onChange={e => setFormData({ ...formData, daily_academic_target_minutes: Number(e.target.value) })}
+                className="w-full"
+              />
+              <span className="text-[11px] text-slate-500">Default: 240 mins (4 hours)</span>
+            </div>
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">English Speaking Target (minutes):</label>
+              <input
+                type="number"
+                value={formData.english_speaking_target_minutes || 30}
+                onChange={e => setFormData({ ...formData, english_speaking_target_minutes: Number(e.target.value) })}
+                className="w-full"
+              />
+              <span className="text-[11px] text-slate-500">Tracked separately outside 240m</span>
+            </div>
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Daily DSA Compulsory Questions:</label>
+              <input
+                type="number"
+                value={formData.daily_dsa_count || 2}
+                onChange={e => setFormData({ ...formData, daily_dsa_count: Number(e.target.value) })}
+                className="w-full"
+              />
+              <span className="text-[11px] text-slate-500">Default: 2 questions per day</span>
+            </div>
+          </div>
+        </div>
+
+        {/* College Commitments */}
+        <div className="space-y-4 border-t pt-4" style={{ borderColor: 'var(--border-color)' }}>
+          <h3 className="text-sm font-bold text-indigo-400 uppercase tracking-wider">College Timetable & Commitments</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Working Day Class Hours:</label>
+              <input
+                type="number"
+                step="0.5"
+                value={formData.college_working_day_hours || 3.0}
+                onChange={e => setFormData({ ...formData, college_working_day_hours: Number(e.target.value) })}
+                className="w-full"
+              />
+              <span className="text-[11px] text-slate-500">Default: 3.0 hours on working days (Mon-Fri)</span>
+            </div>
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Holiday Class Hours (When Marked):</label>
+              <input
+                type="number"
+                step="0.5"
+                value={formData.college_holiday_hours || 5.0}
+                onChange={e => setFormData({ ...formData, college_holiday_hours: Number(e.target.value) })}
+                className="w-full"
+              />
+              <span className="text-[11px] text-slate-500">Default: 5.0 hours for special dates</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Special Holiday Break */}
+        <div className="space-y-4 border-t pt-4" style={{ borderColor: 'var(--border-color)' }}>
+          <h3 className="text-sm font-bold text-indigo-400 uppercase tracking-wider">Special Holiday Break</h3>
+          <div className="p-3 rounded-lg border text-xs text-amber-300 bg-amber-500/10 border-amber-500/30">
+            ⚠️ <strong>Duration Notice:</strong> 6 December to 11 December 2026 is 6 calendar days, not 7.
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Break Start Date:</label>
+              <input
+                type="date"
+                value={formData.special_break_start || '2026-12-06'}
+                onChange={e => setFormData({ ...formData, special_break_start: e.target.value })}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Break End Date:</label>
+              <input
+                type="date"
+                value={formData.special_break_end || '2026-12-11'}
+                onChange={e => setFormData({ ...formData, special_break_end: e.target.value })}
+                className="w-full"
+              />
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 text-xs">
+            <input
+              type="checkbox"
+              id="seventh_day"
+              checked={formData.special_break_include_7th_day || false}
+              onChange={e => setFormData({ ...formData, special_break_include_7th_day: e.target.checked })}
+            />
+            <label htmlFor="seventh_day" className="text-slate-300 font-medium">
+              Include missing 7th day (extend break through 12 December 2026)
+            </label>
+          </div>
+        </div>
+
+        {/* Timezone Setting */}
+        <div className="space-y-2 border-t pt-4 text-xs" style={{ borderColor: 'var(--border-color)' }}>
+          <label className="block text-slate-300 font-medium">Application Timezone:</label>
+          <input
+            type="text"
+            value={formData.time_zone || 'Asia/Kolkata'}
+            onChange={e => setFormData({ ...formData, time_zone: e.target.value })}
+            className="w-full sm:w-1/2"
+          />
+          <span className="text-[11px] text-slate-500">Default: Asia/Kolkata (India Standard Time)</span>
+        </div>
+
+        {/* Save & Backup Controls */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-5" style={{ borderColor: 'var(--border-color)' }}>
+          <div className="flex space-x-2">
+            <button onClick={handleExportBackup} className="btn-secondary text-xs">
+              💾 Export JSON Backup
+            </button>
+          </div>
+          <button onClick={handleSave} disabled={saving} className="btn-primary text-xs font-bold">
+            {saving ? 'Saving Changes...' : 'Save Settings'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------- FOCUS MODE MODAL -----------------
+
+function FocusModeModal({ task, onClose, showToast }) {
+  const [seconds, setSeconds] = useState(0);
+  const [isRunning, setIsRunning] = useState(true);
+  const [notes, setNotes] = useState('');
+  const [confidence, setConfidence] = useState(4);
+
+  useEffect(() => {
+    let interval = null;
+    if (isRunning) {
+      interval = setInterval(() => setSeconds(s => s + 1), 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
+  const targetSec = (task.duration_minutes || 60) * 60;
+  const remainingSec = Math.max(0, targetSec - seconds);
+
+  const formatTime = (s) => {
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const handleFinish = async () => {
+    try {
+      const actualMinutes = Math.max(1, Math.round(seconds / 60));
+      await window.LastChanceAPI.completeTask(task.id, {
+        status: 'COMPLETED',
+        completion_percentage: 100,
+        actual_minutes: actualMinutes,
+        confidence_rating: confidence,
+        notes: notes
+      });
+      showToast('Focus session logged and task marked complete!', 'success');
+      onClose();
+    } catch (e) {
+      showToast('Failed to log session: ' + e.message, 'error');
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog p-6 space-y-6 text-center max-w-lg">
+        <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+          <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">Focus Mode</span>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">✕</button>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-slate-100">{task.topic_title}</h3>
+          <p className="text-xs text-slate-400 mt-1">Planned Target: {task.duration_minutes} minutes</p>
+        </div>
+
+        <div className="p-6 rounded-2xl border text-center space-y-2" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
+          <div className="text-5xl font-black font-mono tracking-tight text-indigo-400">
+            {formatTime(remainingSec)}
+          </div>
+          <div className="text-xs text-slate-400">
+            Elapsed: {formatTime(seconds)}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center space-x-3">
+          <button
+            onClick={() => setIsRunning(!isRunning)}
+            className={`px-5 py-2.5 rounded-lg text-xs font-bold ${
+              isRunning ? 'bg-amber-600 text-white' : 'btn-primary'
+            }`}
+          >
+            {isRunning ? '⏸️ Pause' : '▶️ Resume'}
+          </button>
+        </div>
+
+        <div className="space-y-2 text-left text-xs">
+          <label className="block text-slate-300 font-medium">Session Observations / Notes:</label>
+          <textarea
+            rows="2"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Record key derivations, formulas or recall notes..."
+            className="w-full text-xs"
+          />
+        </div>
+
+        <div className="flex justify-end space-x-2 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+          <button onClick={onClose} className="btn-secondary text-xs">Close</button>
+          <button onClick={handleFinish} className="btn-primary text-xs font-bold">
+            ✓ Complete & Save Session
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Render Application into Root
+const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);

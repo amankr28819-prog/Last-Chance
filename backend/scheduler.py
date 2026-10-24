@@ -60,26 +60,80 @@ class StudyScheduler:
             "is_past_deadline": is_past_deadline
         }
 
+    def get_college_hours_for_date(self, target_date: date) -> float:
+        """Calculates college class hours for a given date.
+        Mon-Fri default: 3.0 hrs
+        Sat-Sun default: 0.0 hrs
+        Special holiday classes: 5.0 hrs when explicitly marked
+        Special break (Dec 6-11): 0.0 hrs
+        """
+        date_str = target_date.strftime("%Y-%m-%d")
+        
+        # Check special break range
+        break_start = self._get_setting("special_break_start", "2026-12-06")
+        break_end = self._get_setting("special_break_end", "2026-12-11")
+        include_7th = self._get_setting("special_break_include_7th_day", False)
+        if include_7th and break_end == "2026-12-11":
+            break_end = "2026-12-12"
+            
+        if break_start <= date_str <= break_end:
+            # College is off during special break
+            return 0.0
+
+        # Check explicitly marked special holiday dates with classes
+        special_holiday_dates = self._get_setting("special_holiday_class_dates", [])
+        if date_str in special_holiday_dates:
+            return float(self._get_setting("college_holiday_hours", 5.0))
+
+        # Check day of week (match either full name like 'Monday' or abbreviation like 'mon')
+        weekday_name = target_date.strftime("%A").lower()
+        day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][target_date.weekday()]
+        working_days = self._get_setting("working_days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+        working_set = {str(d).lower() for d in working_days}
+        if weekday_name in working_set or day_abbr in working_set:
+            return float(self._get_setting("college_working_day_hours", 3.0))
+        return 0.0
+
     def get_daily_available_minutes(self, target_date: date) -> int:
-        """Calculates realistic available study minutes for a given date considering weekday/weekend and blocked dates."""
+        """Calculates realistic available main academic study minutes for a given date.
+        Core daily academic target is 240 minutes (4 hours) reserved for semester subjects.
+        DSA (2 questions) and English Speaking (30 min) are tracked separately.
+        """
         blocked_dates = self._get_setting("blocked_dates", [])
         date_str = target_date.strftime("%Y-%m-%d")
         if date_str in blocked_dates:
             return 0
 
-        # Check explicit day-of-week custom windows if present
+        # Check special break range
+        break_start = self._get_setting("special_break_start", "2026-12-06")
+        break_end = self._get_setting("special_break_end", "2026-12-11")
+        include_7th = self._get_setting("special_break_include_7th_day", False)
+        if include_7th and break_end == "2026-12-11":
+            break_end = "2026-12-12"
+
+        if break_start <= date_str <= break_end:
+            # User can configure lighter break target or default target
+            break_target = self._get_setting("special_break_study_minutes", None)
+            if break_target is not None:
+                return int(break_target)
+
+        # 1. Primary Academic Target (240 minutes per day = 4 hours)
+        target = self._get_setting("daily_academic_target_minutes", None)
+        if target is not None:
+            return int(target)
+
+        # 2. Check explicit day-of-week custom windows if configured
         study_windows = self._get_setting("study_windows", [])
         day_abbr = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][target_date.weekday()]
-        
         if study_windows:
-            window_mins = sum(w.get("minutes", 0) for w in study_windows if day_abbr in w.get("days", []))
+            window_mins = sum(w.get("minutes", 0) for w in study_windows if day_abbr in [str(d).lower() for d in w.get("days", [])])
             if window_mins > 0:
                 return window_mins
-
-        # Default fallback
-        if target_date.weekday() in (5, 6): # Weekend
-            return int(self._get_setting("weekend_minutes", 300))
-        return int(self._get_setting("weekday_minutes", 180))
+            
+        # 3. Fallback to weekday/weekend settings if set, default 240
+        if target_date.weekday() in (5, 6):
+            return int(self._get_setting("weekend_minutes", 240))
+        return int(self._get_setting("weekday_minutes", 240))
 
     def calculate_topic_remaining_effort(self, topic: Dict[str, Any]) -> int:
         """Mastery-aware remaining effort calculation."""

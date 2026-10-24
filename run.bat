@@ -1,14 +1,14 @@
 @echo off
 setlocal enabledelayedexpansion
-title StudyPilot — Personal Exam Planning System
+title Last Chance — Personal Study Management Application
 color 0b
 
 :: Ensure execution from the project's root directory
 cd /d "%~dp0"
 
 echo ======================================================================
-echo          StudyPilot - Your Personal Exam Planning System
-echo   Ensuring complete syllabus coverage and protected revision buffers
+echo          Last Chance - Personal Study Management Application
+echo   4h Academic Target • 2 Daily DSA • 30m English Practice • IST Time
 echo ======================================================================
 echo.
 
@@ -56,16 +56,16 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-echo [OK] Database verified at data\studypilot.db
+echo [OK] Database verified at data\lastchance.db
 
-:: 4. Start the StudyPilot application
-echo [3/3] Launching StudyPilot server...
+:: 4. Start the Last Chance application
+echo [3/3] Launching Last Chance server...
 echo.
 python main.py
 
 if errorlevel 1 (
     echo.
-    echo [NOTICE] StudyPilot process exited with an error.
+    echo [NOTICE] Last Chance process exited with an error.
 )
 
 echo.

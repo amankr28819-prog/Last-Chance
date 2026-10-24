@@ -42,9 +42,12 @@ def main():
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    parser = argparse.ArgumentParser(description="StudyPilot — Personal Exam Planning System")
-    parser.add_argument("--port", type=int, default=int(os.environ.get("STUDYPILOT_PORT", 8000)), help="Port to run the server on (default: 8000)")
-    parser.add_argument("--host", type=str, default=os.environ.get("STUDYPILOT_HOST", "127.0.0.1"), help="Host to bind (default: 127.0.0.1)")
+    default_port = int(os.environ.get("LASTCHANCE_PORT", os.environ.get("STUDYPILOT_PORT", 8000)))
+    default_host = os.environ.get("LASTCHANCE_HOST", os.environ.get("STUDYPILOT_HOST", "127.0.0.1"))
+
+    parser = argparse.ArgumentParser(description="Last Chance — Personal Study Management Application")
+    parser.add_argument("--port", type=int, default=default_port, help="Port to run the server on (default: 8000)")
+    parser.add_argument("--host", type=str, default=default_host, help="Host to bind (default: 127.0.0.1)")
     parser.add_argument("--no-browser", action="store_true", help="Do not automatically open the default web browser")
     parser.add_argument("--auto-port", action="store_true", default=True, help="Automatically use the next available port if port is occupied")
     args = parser.parse_args()
@@ -53,8 +56,8 @@ def main():
     host = args.host
 
     print("=" * 68)
-    print("      StudyPilot — Your Personal Exam Planning System")
-    print("      Ensuring complete syllabus coverage & protected revision")
+    print("      Last Chance — Personal Study Management Application")
+    print("      4h Academic Study • 2 Daily DSA • 30m English Practice")
     print("=" * 68)
 
     # Pre-check port availability
@@ -62,11 +65,11 @@ def main():
         proc_info = find_process_on_port(port)
         if proc_info:
             pid, name, cmdline = proc_info
-            is_studypilot = "main.py" in cmdline or "StudyPilot" in cmdline
+            is_our_app = "main.py" in cmdline or "Last Chance" in cmdline or "Last-Chance" in cmdline
             
             print(f"\n[NOTICE] Port {port} is already in use by process '{name}' (PID: {pid}).")
-            if is_studypilot:
-                print(f"         It appears another StudyPilot instance is already running!")
+            if is_our_app:
+                print(f"         Another Last Chance instance appears to be running!")
                 print(f"         Active URL: http://{host}:{port}")
                 print(f"\nOptions:")
                 print(f"  1. Open the existing instance in your browser: http://{host}:{port}")
@@ -75,7 +78,7 @@ def main():
                 print(f"         Command: {cmdline}")
                 print(f"\nOptions:")
                 print(f"  1. Stop process {pid} if you no longer need it.")
-                print(f"  2. Run StudyPilot on another port with: python main.py --port <port>")
+                print(f"  2. Run Last Chance on another port with: python main.py --port <port>")
 
         if args.auto_port:
             next_port = find_next_available_port(port + 1)
@@ -86,7 +89,7 @@ def main():
             sys.exit(1)
 
     url = f"http://{host}:{port}"
-    print(f"\n[OK] Starting StudyPilot server at: {url}")
+    print(f"\n[OK] Starting Last Chance server at: {url}")
     print(f"     Press Ctrl+C in this console window to stop the application.\n")
 
     # Launch browser after a short delay

@@ -1,13 +1,24 @@
 import sqlite3
 import json
 import os
+import shutil
 from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "studypilot.db")
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+DB_PATH = os.path.join(DATA_DIR, "lastchance.db")
+OLD_DB_PATH = os.path.join(DATA_DIR, "studypilot.db")
 
 def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    # Safe migration: if old studypilot.db exists and lastchance.db does not, migrate it
+    if not os.path.exists(db_path) and os.path.exists(OLD_DB_PATH):
+        try:
+            shutil.copy2(OLD_DB_PATH, db_path)
+        except Exception:
+            pass
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -27,7 +38,7 @@ def init_db(db_path: str = DB_PATH):
         total_lectures INTEGER NOT NULL DEFAULT 42,
         exam_date TEXT,
         priority TEXT NOT NULL DEFAULT 'NORMAL', -- 'NORMAL', 'HIGH', 'URGENT'
-        color TEXT NOT NULL DEFAULT '#3b82f6',
+        color TEXT NOT NULL DEFAULT '#6366f1',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -53,6 +64,7 @@ def init_db(db_path: str = DB_PATH):
         is_official INTEGER NOT NULL DEFAULT 1,
         source_doc TEXT DEFAULT 'Official Syllabus',
         order_index INTEGER NOT NULL DEFAULT 0,
+        notes TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE,
         FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
@@ -141,10 +153,109 @@ def init_db(db_path: str = DB_PATH):
         completed_at TEXT,
         FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
     );
+
+    -- New Dedicated Tables for Personalized Routine
+    CREATE TABLE IF NOT EXISTS dsa_questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        difficulty TEXT NOT NULL DEFAULT 'Medium', -- Easy, Medium, Hard
+        description TEXT NOT NULL,
+        problem_statement TEXT,
+        concept TEXT NOT NULL,
+        hints_json TEXT,
+        hint_1 TEXT,
+        hint_2 TEXT,
+        solution TEXT NOT NULL,
+        solution_approach TEXT,
+        solution_code TEXT,
+        approach_notes TEXT,
+        time_complexity TEXT DEFAULT 'O(N)',
+        space_complexity TEXT DEFAULT 'O(1)',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_dsa_assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assigned_date TEXT NOT NULL,
+        question_id INTEGER NOT NULL,
+        slot_number INTEGER DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'Pending', -- Pending, Attempted, Solved, Needs Revision
+        user_approach TEXT,
+        approach_notes TEXT,
+        time_spent_minutes INTEGER DEFAULT 0,
+        mistakes_notes TEXT,
+        mistakes TEXT,
+        completed_at TEXT,
+        FOREIGN KEY (question_id) REFERENCES dsa_questions(id) ON DELETE CASCADE,
+        UNIQUE(assigned_date, question_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS english_speaking_topics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        vocabulary_json TEXT NOT NULL,
+        starter_phrases_json TEXT,
+        prompt_questions_json TEXT,
+        vocabulary TEXT,
+        speaking_prompts TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_english_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assigned_date TEXT UNIQUE,
+        log_date TEXT UNIQUE,
+        topic_id INTEGER NOT NULL,
+        duration_seconds INTEGER DEFAULT 0,
+        time_spent_seconds INTEGER DEFAULT 0,
+        notes TEXT,
+        completed INTEGER NOT NULL DEFAULT 0,
+        is_completed INTEGER NOT NULL DEFAULT 0,
+        streak_count INTEGER NOT NULL DEFAULT 0,
+        completed_at TEXT,
+        FOREIGN KEY (topic_id) REFERENCES english_speaking_topics(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_quotes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote TEXT NOT NULL,
+        quote_text TEXT,
+        category TEXT NOT NULL,
+        author TEXT DEFAULT 'Unknown',
+        is_favorite INTEGER NOT NULL DEFAULT 0,
+        day_offset INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS calendar_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_date TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        event_type TEXT NOT NULL DEFAULT 'study', -- study, college, holiday, exam, personal
+        start_time TEXT,
+        end_time TEXT,
+        duration_minutes INTEGER NOT NULL DEFAULT 60,
+        subject_code TEXT,
+        color TEXT,
+        notes TEXT,
+        is_completed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     """)
 
     conn.commit()
     seed_initial_data_if_empty(conn)
+    seed_dsa_questions_if_empty(conn)
+    seed_english_topics_if_empty(conn)
+    seed_quotes_if_empty(conn)
+
+    # Ensure standard aliases for targets are populated
+    for k, v in [("daily_academic_target_minutes", 240), ("english_speaking_target_minutes", 30), ("daily_dsa_count", 2)]:
+        if get_setting(conn, k) is None:
+            set_setting(conn, k, v)
+
     conn.close()
 
 def get_setting(conn: sqlite3.Connection, key: str, default: Any = None) -> Any:
@@ -167,24 +278,41 @@ def set_setting(conn: sqlite3.Connection, key: str, value: Any):
 def seed_initial_data_if_empty(conn: sqlite3.Connection):
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) as count FROM subjects")
-    if cursor.fetchone()["count"] > 0:
-        return
+    has_subjects = cursor.fetchone()["count"] > 0
 
     # Default Settings
     default_settings = {
+        "app_name": "Last Chance",
         "first_exam_date": "2026-11-26",
         "syllabus_deadline": "2026-11-19",
         "revision_buffer_days": 7,
         "is_buffer_mandatory": True,
-        "weekday_minutes": 180,  # 3 hours/day
-        "weekend_minutes": 300,  # 5 hours/day
-        "college_hours": "09:00 - 16:00",
-        "commute_minutes": 60,
+        # Daily study targets strictly separated
+        "academic_daily_target_minutes": 240, # 4 Hours main academic study
+        "daily_academic_target_minutes": 240,
+        "english_daily_target_minutes": 30,    # 30 Minutes English speaking
+        "english_speaking_target_minutes": 30,
+        "dsa_daily_question_count": 2,         # 2 DSA questions daily
+        "daily_dsa_count": 2,
+        # College schedule
+        "college_working_day_hours": 3.0,     # 3 hours on working days
+        "college_holiday_hours": 5.0,         # 5 hours on holidays if marked
+        "working_days": ["mon", "tue", "wed", "thu", "fri"],
+        "weekly_holidays": ["sat", "sun"],
+        # Special 7-day holiday (6-11 Dec inclusive = 6 days, option for 7th)
+        "special_break_start": "2026-12-06",
+        "special_break_end": "2026-12-11",
+        "special_break_include_7th_day": False,
+        "special_break_notice": "Note: Dec 6 to Dec 11 inclusive contains 6 calendar days. You can optionally include Dec 12 as the 7th day in Settings.",
+        "weekday_minutes": 240,  # 4 hours academic study
+        "weekend_minutes": 300,  # 5 hours academic study on holidays
+        "college_hours": "09:00 - 12:00",
+        "commute_minutes": 30,
         "sleep_hours": "23:30 - 06:30",
         "study_windows": [
             {"name": "Morning Slot", "start": "06:45", "end": "08:15", "minutes": 90, "days": ["mon", "tue", "wed", "thu", "fri"]},
             {"name": "Evening Slot", "start": "18:00", "end": "19:30", "minutes": 90, "days": ["mon", "tue", "wed", "thu", "fri"]},
-            {"name": "Night Slot", "start": "20:30", "end": "22:00", "minutes": 90, "days": ["mon", "tue", "wed", "thu", "fri"]},
+            {"name": "Night Slot", "start": "20:30", "end": "21:30", "minutes": 60, "days": ["mon", "tue", "wed", "thu", "fri"]},
             {"name": "Weekend Morning", "start": "08:00", "end": "11:00", "minutes": 180, "days": ["sat", "sun"]},
             {"name": "Weekend Evening", "start": "16:00", "end": "18:00", "minutes": 120, "days": ["sat", "sun"]}
         ],
@@ -193,26 +321,31 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
         "max_consecutive_minutes": 90,
         "break_duration": 15,
         "subjects_per_day": 2,
-        "study_style": "INTERLEAVED", # INTERLEAVED or DEEP_DIVE
+        "study_style": "INTERLEAVED",
         "daily_practice": True,
         "spaced_revision": True,
-        "onboarding_completed": False,
+        "onboarding_completed": True,
         "theme": "dark",
         "time_zone": "Asia/Kolkata"
     }
 
     for k, v in default_settings.items():
-        val_str = json.dumps(v) if not isinstance(v, str) else v
-        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, val_str))
+        cursor.execute("SELECT value FROM settings WHERE key = ?", (k,))
+        if not cursor.fetchone():
+            val_str = json.dumps(v) if not isinstance(v, str) else v
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, val_str))
 
-    # Initial Subjects Data
+    if has_subjects:
+        return
+
+    # Seed the 4 official subjects
     subjects_data = [
         {
             "code": "CSN 3003",
             "name": "Discrete Structures for Computer Science",
             "credits": 4,
             "total_lectures": 42,
-            "color": "#6366f1", # Indigo
+            "color": "#6366f1",
             "priority": "HIGH",
             "exam_date": "2026-11-26",
             "units": [
@@ -323,7 +456,7 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
             "name": "Data Structures",
             "credits": 4,
             "total_lectures": 42,
-            "color": "#10b981", # Emerald
+            "color": "#10b981",
             "priority": "HIGH",
             "exam_date": "2026-11-28",
             "units": [
@@ -441,7 +574,7 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
             "name": "Object Oriented Programming",
             "credits": 4,
             "total_lectures": 42,
-            "color": "#f59e0b", # Amber
+            "color": "#f59e0b",
             "priority": "NORMAL",
             "exam_date": "2026-12-01",
             "units": [
@@ -545,7 +678,7 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
             "name": "Data Science & Machine Learning",
             "credits": 4,
             "total_lectures": 42,
-            "color": "#8b5cf6", # Purple
+            "color": "#8b5cf6",
             "priority": "HIGH",
             "exam_date": "2026-12-04",
             "units": [
@@ -667,7 +800,6 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
                     """, (topic_id, st, s_idx))
 
     # Add realistic prerequisites
-    # Find topic ids helper
     cursor.execute("SELECT id, title FROM topics")
     topic_map = {row["title"]: row["id"] for row in cursor.fetchall()}
 
@@ -745,4 +877,333 @@ def seed_initial_data_if_empty(conn: sqlite3.Connection):
                 VALUES (?, ?)
             """, (topic_map[topic_title], topic_map[prereq_title]))
 
+    conn.commit()
+
+def seed_dsa_questions_if_empty(conn: sqlite3.Connection):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as count FROM dsa_questions")
+    if cursor.fetchone()["count"] > 0:
+        return
+
+    questions = [
+        (
+            "Reverse a Singly Linked List",
+            "Linked Lists",
+            "Easy",
+            "Given the head of a singly linked list, reverse the list in-place and return its new head.",
+            "Pointer manipulation, iterative 3-pointer technique (prev, curr, next) and recursive call stack.",
+            json.dumps([
+                "Initialize three pointers: prev = NULL, curr = head, next = NULL.",
+                "In each iteration, save curr->next before modifying it.",
+                "Point curr->next backwards to prev, then advance prev and curr."
+            ]),
+            "Time Complexity: O(N) where N is number of nodes.\nSpace Complexity: O(1) iterative in-place.\n\nIterative Solution in C++:\n```cpp\nListNode* reverseList(ListNode* head) {\n    ListNode *prev = nullptr, *curr = head;\n    while (curr != nullptr) {\n        ListNode* nextTemp = curr->next;\n        curr->next = prev;\n        prev = curr;\n        curr = nextTemp;\n    }\n    return prev;\n}\n```"
+        ),
+        (
+            "Detect and Remove Loop in Linked List (Floyd's Cycle)",
+            "Linked Lists",
+            "Medium",
+            "Given a linked list, detect whether a cycle exists. If a cycle exists, find the starting node of the loop and break the cycle.",
+            "Fast and slow pointers (tortoise and hare algorithm), modular arithmetic on linked nodes.",
+            json.dumps([
+                "Advance slow by 1 step and fast by 2 steps. If they meet, a cycle exists.",
+                "Reset one pointer to head while keeping the other at the meeting point.",
+                "Advance both by 1 step until they meet; that meeting point is the loop start."
+            ]),
+            "Time Complexity: O(N).\nSpace Complexity: O(1).\n\n```cpp\nListNode* detectCycle(ListNode* head) {\n    ListNode *slow = head, *fast = head;\n    while (fast && fast->next) {\n        slow = slow->next;\n        fast = fast->next->next;\n        if (slow == fast) {\n            ListNode* entry = head;\n            while (entry != slow) {\n                entry = entry->next;\n                slow = slow->next;\n            }\n            return entry; // loop start\n        }\n    }\n    return nullptr;\n}\n```"
+        ),
+        (
+            "Valid Parentheses Matching",
+            "Stacks",
+            "Easy",
+            "Given a string containing just '(', ')', '{', '}', '[' and ']', determine if the input string is valid by balanced bracket ordering.",
+            "LIFO stack principle, matching opening and closing delimiter pairs.",
+            json.dumps([
+                "Push opening brackets onto stack.",
+                "When encountering a closing bracket, check if stack is non-empty and top matches.",
+                "At the end of string, stack must be empty."
+            ]),
+            "Time Complexity: O(N).\nSpace Complexity: O(N).\n\n```cpp\nbool isValid(string s) {\n    stack<char> st;\n    for (char c : s) {\n        if (c == '(' || c == '{' || c == '[') st.push(c);\n        else {\n            if (st.empty()) return false;\n            char top = st.top(); st.pop();\n            if ((c == ')' && top != '(') || (c == '}' && top != '{') || (c == ']' && top != '[')) return false;\n        }\n    }\n    return st.empty();\n}\n```"
+        ),
+        (
+            "Evaluate Reverse Polish Notation (Postfix Expression)",
+            "Stacks",
+            "Medium",
+            "Evaluate the value of an arithmetic expression in Reverse Polish Notation. Valid operators are +, -, *, /.",
+            "Operand stack, operator precedence elimination in postfix.",
+            json.dumps([
+                "Iterate through tokens. If token is number, push to stack.",
+                "If operator, pop two operands: right operand first, left operand second.",
+                "Apply operator, push result back to stack."
+            ]),
+            "Time Complexity: O(N).\nSpace Complexity: O(N).\n\n```cpp\nint evalRPN(vector<string>& tokens) {\n    stack<int> st;\n    for (const string& t : tokens) {\n        if (t == \"+\" || t == \"-\" || t == \"*\" || t == \"/\") {\n            int b = st.top(); st.pop();\n            int a = st.top(); st.pop();\n            if (t == \"+\") st.push(a + b);\n            else if (t == \"-\") st.push(a - b);\n            else if (t == \"*\") st.push(a * b);\n            else if (t == \"/\") st.push(a / b);\n        } else {\n            st.push(stoi(t));\n        }\n    }\n    return st.top();\n}\n```"
+        ),
+        (
+            "Implement Circular Queue with Dynamic Array",
+            "Queues",
+            "Medium",
+            "Design a circular queue data structure supporting enQueue, deQueue, Front, Rear, isEmpty, and isFull without wasting buffer space.",
+            "Modulo arithmetic `(rear + 1) % capacity`, ring buffer mechanics.",
+            json.dumps([
+                "Use front and rear pointers initialized to -1.",
+                "When enqueueing: rear = (rear + 1) % size.",
+                "When dequeueing: front = (front + 1) % size."
+            ]),
+            "Time Complexity: O(1) for all operations.\nSpace Complexity: O(K) where K is capacity.\n\nAll operations utilize (index + 1) % capacity to wrap around seamlessly."
+        ),
+        (
+            "Binary Tree Level Order Traversal (BFS)",
+            "Trees",
+            "Medium",
+            "Given the root of a binary tree, return the level order traversal of its nodes' values (from left to right, level by level).",
+            "Breadth First Search using a FIFO queue.",
+            json.dumps([
+                "Push root to queue if not null.",
+                "At each level, record `int levelSize = q.size()`.",
+                "Pop exactly `levelSize` elements, collect values, and push their children."
+            ]),
+            "Time Complexity: O(N).\nSpace Complexity: O(W) where W is max tree width.\n\n```cpp\nvector<vector<int>> levelOrder(TreeNode* root) {\n    vector<vector<int>> res;\n    if (!root) return res;\n    queue<TreeNode*> q;\n    q.push(root);\n    while (!q.empty()) {\n        int sz = q.size();\n        vector<int> level;\n        for (int i = 0; i < sz; i++) {\n            TreeNode* node = q.front(); q.pop();\n            level.push_back(node->val);\n            if (node->left) q.push(node->left);\n            if (node->right) q.push(node->right);\n        }\n        res.push_back(level);\n    }\n    return res;\n}\n```"
+        ),
+        (
+            "Validate Binary Search Tree",
+            "Binary Search Trees",
+            "Medium",
+            "Given the root of a binary tree, determine if it is a valid binary search tree (BST). Left subtree strictly less, right strictly greater.",
+            "BST invariant property, range propagation (minVal, maxVal) or in-order sorted check.",
+            json.dumps([
+                "A node's value must be strictly within (minLimit, maxLimit).",
+                "When going left, update maxLimit = node->val.",
+                "When going right, update minLimit = node->val."
+            ]),
+            "Time Complexity: O(N).\nSpace Complexity: O(H) call stack height.\n\n```cpp\nbool validate(TreeNode* node, long minVal, long maxVal) {\n    if (!node) return true;\n    if (node->val <= minVal || node->val >= maxVal) return false;\n    return validate(node->left, minVal, node->val) && validate(node->right, node->val, maxVal);\n}\n```"
+        ),
+        (
+            "Lowest Common Ancestor in a Binary Search Tree",
+            "Binary Search Trees",
+            "Easy",
+            "Given a binary search tree (BST), find the lowest common ancestor (LCA) node of two given nodes p and q.",
+            "BST ordering property: split point where p and q diverge.",
+            json.dumps([
+                "If both p and q values are less than root, LCA lies in left subtree.",
+                "If both p and q values are greater than root, LCA lies in right subtree.",
+                "Otherwise, root is the split point and the LCA."
+            ]),
+            "Time Complexity: O(H) where H is tree height.\nSpace Complexity: O(1) iterative.\n\n```cpp\nTreeNode* lowestCommonAncestor(TreeNode* root, TreeNode* p, TreeNode* q) {\n    while (root) {\n        if (p->val < root->val && q->val < root->val) root = root->left;\n        else if (p->val > root->val && q->val > root->val) root = root->right;\n        else return root;\n    }\n    return nullptr;\n}\n```"
+        ),
+        (
+            "Find Minimum in Rotated Sorted Array",
+            "Review",
+            "Medium",
+            "Suppose an array of length n sorted in ascending order is rotated between 1 and n times. Find the minimum element in O(log n) time.",
+            "Binary search on modified sorted partitions.",
+            json.dumps([
+                "Compare nums[mid] with nums[right].",
+                "If nums[mid] > nums[right], minimum lies in right half: left = mid + 1.",
+                "Otherwise minimum lies in left half including mid: right = mid."
+            ]),
+            "Time Complexity: O(log N).\nSpace Complexity: O(1).\n\n```cpp\nint findMin(vector<int>& nums) {\n    int left = 0, right = nums.size() - 1;\n    while (left < right) {\n        int mid = left + (right - left) / 2;\n        if (nums[mid] > nums[right]) left = mid + 1;\n        else right = mid;\n    }\n    return nums[left];\n}\n```"
+        ),
+        (
+            "Implement Min Heap / Priority Queue",
+            "Advanced Data Structures",
+            "Medium",
+            "Implement a binary Min-Heap supporting insert, extractMin, and heapify in O(log N) time using a standard 0-indexed vector.",
+            "Complete binary tree array mapping: parent = (i-1)/2, left = 2i+1, right = 2i+2.",
+            json.dumps([
+                "Insert adds element at end and sifts up (bubble up) while smaller than parent.",
+                "ExtractMin swaps root with last element, pops back, and sifts down (bubble down)."
+            ]),
+            "Time Complexity: Insert O(log N), ExtractMin O(log N), GetMin O(1).\nSpace: O(N)."
+        ),
+        (
+            "Dijkstra's Shortest Path Algorithm",
+            "Graphs",
+            "Hard",
+            "Given a weighted graph with non-negative edge weights and a source vertex, find the shortest path distances from source to all other vertices.",
+            "Greedy vertex relaxation with min-priority queue (distance, vertex).",
+            json.dumps([
+                "Maintain dist[] array initialized to infinity, with dist[src] = 0.",
+                "Use min-heap priority_queue<pair<int,int>, vector<pair<int,int>>, greater<>>.",
+                "Relax edge (u, v, weight): if dist[u] + weight < dist[v], update dist[v] and push."
+            ]),
+            "Time Complexity: O((V + E) log V).\nSpace Complexity: O(V + E).\n\n```cpp\nvector<int> dijkstra(int V, vector<vector<pair<int,int>>>& adj, int S) {\n    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;\n    vector<int> dist(V, 1e9);\n    dist[S] = 0;\n    pq.push({0, S});\n    while (!pq.empty()) {\n        auto [d, u] = pq.top(); pq.pop();\n        if (d > dist[u]) continue;\n        for (auto& edge : adj[u]) {\n            int v = edge.first, w = edge.second;\n            if (dist[u] + w < dist[v]) {\n                dist[v] = dist[u] + w;\n                pq.push({dist[v], v});\n            }\n        }\n    }\n    return dist;\n}\n```"
+        ),
+        (
+            "Connected Components in Undirected Graph (BFS/DFS)",
+            "Graphs",
+            "Easy",
+            "Given n vertices and a list of undirected edges, find the total number of connected components in the graph.",
+            "Graph traversal using visited boolean array.",
+            json.dumps([
+                "Build adjacency list.",
+                "Iterate i from 0 to n-1. If vertex i is unvisited, launch BFS/DFS and increment component count."
+            ]),
+            "Time Complexity: O(V + E).\nSpace Complexity: O(V + E)."
+        ),
+        (
+            "Longest Consecutive Sequence",
+            "Advanced Data Structures",
+            "Medium",
+            "Given an unsorted array of integers, find the length of the longest consecutive elements sequence in O(N) time.",
+            "Hash Set O(1) lookups, identifying sequence start points.",
+            json.dumps([
+                "Insert all elements into unordered_set.",
+                "Only start counting sequence from `x` if `x - 1` does NOT exist in set.",
+                "Count x+1, x+2... while present in set."
+            ]),
+            "Time Complexity: O(N).\nSpace Complexity: O(N).\n\n```cpp\nint longestConsecutive(vector<int>& nums) {\n    unordered_set<int> s(nums.begin(), nums.end());\n    int maxLen = 0;\n    for (int num : s) {\n        if (!s.count(num - 1)) {\n            int curr = num, len = 1;\n            while (s.count(curr + 1)) { curr++; len++; }\n            maxLen = max(maxLen, len);\n        }\n    }\n    return maxLen;\n}\n```"
+        ),
+        (
+            "Kth Largest Element in an Array",
+            "Advanced Data Structures",
+            "Medium",
+            "Given an integer array nums and an integer k, return the kth largest element in the array without full sorting.",
+            "Min-heap of fixed size K or Quickselect algorithm.",
+            json.dumps([
+                "Maintain a min-heap of size k.",
+                "Push each element. If heap size exceeds k, pop the smallest element.",
+                "After traversing array, heap top contains the kth largest element."
+            ]),
+            "Time Complexity: O(N log K).\nSpace Complexity: O(K).\n\n```cpp\nint findKthLargest(vector<int>& nums, int k) {\n    priority_queue<int, vector<int>, greater<int>> minHeap;\n    for (int num : nums) {\n        minHeap.push(num);\n        if (minHeap.size() > k) minHeap.pop();\n    }\n    return minHeap.top();\n}\n```"
+        ),
+        (
+            "Course Schedule (Cycle Detection in Directed Graph)",
+            "Graphs",
+            "Medium",
+            "There are a total of numCourses courses with prerequisites [a, b]. Return true if you can finish all courses without cyclical dependencies.",
+            "Topological sort (Kahn's algorithm using in-degree array) or DFS coloring.",
+            json.dumps([
+                "Compute in-degree for every vertex.",
+                "Enqueue all vertices with in-degree == 0.",
+                "Pop vertex, decrement in-degree of its neighbors. If neighbor hits 0, enqueue it.",
+                "If total popped vertices == numCourses, valid topological order exists."
+            ]),
+            "Time Complexity: O(V + E).\nSpace Complexity: O(V + E)."
+        )
+    ]
+
+    for q in questions:
+        hints_list = []
+        try:
+            hints_list = json.loads(q[5])
+        except Exception:
+            hints_list = []
+        h1 = hints_list[0] if len(hints_list) > 0 else None
+        h2 = hints_list[1] if len(hints_list) > 1 else None
+        
+        cursor.execute("""
+            INSERT INTO dsa_questions (title, topic, difficulty, description, problem_statement, concept, hints_json, hint_1, hint_2, solution, solution_approach, solution_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (q[0], q[1], q[2], q[3], q[3], q[4], q[5], h1, h2, q[6], q[6], q[6]))
+    conn.commit()
+
+def seed_english_topics_if_empty(conn: sqlite3.Connection):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as count FROM english_speaking_topics")
+    if cursor.fetchone()["count"] > 0:
+        return
+
+    topics = [
+        (
+            "Technical Concept Explanation: How Hash Tables Handle Collisions",
+            "Technical Concept",
+            "Explain hash collisions, separate chaining, and open addressing in clear, structured English for 5-10 minutes.",
+            json.dumps(["deterministic", "collision resolution", "chaining", "probe sequence", "load factor"]),
+            json.dumps(["To begin with, a hash function maps keys to...", "The primary trade-off between chaining and open addressing is...", "In worst-case scenarios, performance degrades to..."]),
+            json.dumps(["What happens when two distinct keys yield the same index?", "How would you explain the load factor to an interviewer?", "Which collision strategy is preferred in memory-constrained environments?"])
+        ),
+        (
+            "Professional Self-Introduction for Engineering Interviews",
+            "Self Introduction",
+            "Deliver an articulate 2-3 minute elevator pitch covering your technical background, projects, and academic focus.",
+            json.dumps(["specializing in", "proficient in", "hands-on experience", "enthusiastic about", "academic milestones"]),
+            json.dumps(["Hello, my name is Aman. I am currently pursuing...", "Over the past semester, my core focus has been...", "What drives my interest in computer science is..."]),
+            json.dumps(["How do your technical coursework and projects align with your goals?", "What is one technical challenge you recently overcame?"])
+        ),
+        (
+            "Describing an Engineering Project and Problem Solved",
+            "Project Discussion",
+            "Explain an end-to-end software project: the problem statement, architectural choices, and technical hurdles.",
+            json.dumps(["architecture", "modular design", "bottleneck", "optimization", "scalability"]),
+            json.dumps(["The application was designed to solve...", "One significant bottleneck we encountered was...", "To mitigate this, we restructured the database schema..."]),
+            json.dumps(["What made you select this specific technology stack?", "How did you measure the performance improvement?"])
+        ),
+        (
+            "Expressing Opinions on AI in Software Development",
+            "Opinions & Arguments",
+            "Articulate balanced perspectives on how AI coding assistants affect foundational learning and developer productivity.",
+            json.dumps(["augmentation", "syntactic sugar", "algorithmic thinking", "dependency", "paradigm shift"]),
+            json.dumps(["From my vantage point...", "While AI accelerates boilerplate generation, it cannot substitute for...", "On the other hand, engineers must remain cautious of..."]),
+            json.dumps(["Does AI reduce the need to master fundamental data structures?", "How should universities adapt examination formats?"])
+        ),
+        (
+            "Explaining the Trade-off Between Time and Space Complexity",
+            "Technical Concept",
+            "Deliver an engaging monologue comparing time efficiency vs memory footprint with real-world examples.",
+            json.dumps(["amortized", "memory footprint", "caching", "lookup latency", "in-place algorithm"]),
+            json.dumps(["In computer science, optimal design is fundamentally about trade-offs...", "For instance, dynamic programming memoizes state to reduce...", "Conversely, in-place sorting minimizes memory at the expense of..."]),
+            json.dumps(["Can you give an example where saving memory is more crucial than saving CPU cycles?"])
+        ),
+        (
+            "Group Discussion: Building Consistency vs Burst Studying",
+            "Group Discussion",
+            "Practice persuasive argument structures supporting daily disciplined study over cramming before exams.",
+            json.dumps(["spaced repetition", "cognitive load", "neuroplasticity", "burnout", "incremental mastery"]),
+            json.dumps(["I would like to add to this point...", "Evidence clearly demonstrates that cramming results in rapid forgetting...", "Consistent daily allocation builds long-term retention..."]),
+            json.dumps(["Why do students procrastinate even when aware of the risks?", "How does a daily study schedule prevent exam anxiety?"])
+        ),
+        (
+            "Interview Question: Tell Me About a Time You Failed or Got Stuck",
+            "Interview Questions",
+            "Structure an authentic response using the STAR (Situation, Task, Action, Result) methodology in English.",
+            json.dumps(["roadblock", "retrospective", "countermeasure", "resilience", "lessons learned"]),
+            json.dumps(["A notable instance occurred when...", "The task required delivering...", "My action was to step back, profile the error logs, and...", "Ultimately, the result taught me that..."]),
+            json.dumps(["What would you do differently if faced with the same roadblock today?"])
+        ),
+        (
+            "Summarizing Today's Academic Learning in 5 Minutes",
+            "Daily Reflection",
+            "Summarize the key mathematical proof or data structure concept you studied today without looking at notes.",
+            json.dumps(["fundamental theorem", "underlying principle", "edge case", "verification", "takeaway"]),
+            json.dumps(["Today's core topic centered on...", "The most non-intuitive aspect was...", "By the end of the session, I was able to implement..."]),
+            json.dumps(["What was the hardest problem you tackled today?", "How does today's concept connect to previous units?"])
+        )
+    ]
+
+    for t in topics:
+        cursor.execute("""
+            INSERT INTO english_speaking_topics (title, category, objective, vocabulary_json, starter_phrases_json, prompt_questions_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, t)
+    conn.commit()
+
+def seed_quotes_if_empty(conn: sqlite3.Connection):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as count FROM daily_quotes")
+    if cursor.fetchone()["count"] > 0:
+        return
+
+    quotes = [
+        ("Discipline is the bridge between goals and accomplishment.", "Consistency & Discipline", "Jim Rohn"),
+        ("Honour your father and your mother: the blessing of parents is the silent foundation of every great victory.", "Parents & Gratitude", "Traditional Wisdom"),
+        ("Trust in the Almighty with all your heart, and lean not on your own understanding. In all your ways acknowledge Him, and He shall direct your paths.", "Faith in God", "Spiritual Heritage"),
+        ("Success is not final, failure is not fatal: it is the courage to continue that counts.", "Success & Perseverance", "Winston Churchill"),
+        ("Verily, with hardship comes ease. Patience through the struggle is itself a quiet victory.", "Patience & Hope", "Timeless Reflection"),
+        ("Small disciplines repeated with consistency every day lead to great achievements gained slowly over time.", "Consistency & Discipline", "John C. Maxwell"),
+        ("Live as if you were to die tomorrow. Learn as if you were to live forever.", "Study & Learning", "Mahatma Gandhi"),
+        ("Remember the sacrifices of those who believed in you when you had nothing to show. Work so hard that their sacrifices bear fruit.", "Parents & Gratitude", "Reflection"),
+        ("When you plant seeds in the ground, you do not dig them up every day to see if they have grown. Have faith in your daily labor and trust the harvest.", "Patience & Hope", "Ancient Proverb"),
+        ("An investment in knowledge pays the best interest.", "Study & Learning", "Benjamin Franklin"),
+        ("The secret of your future is hidden in your daily routine.", "Consistency & Discipline", "Mike Murdock"),
+        ("Do not pray for an easy life; pray for the strength to endure a difficult one and emerge with wisdom.", "Faith in God", "Spiritual Heritage"),
+        ("He who moves a mountain begins by carrying away small stones.", "Success & Perseverance", "Confucius"),
+        ("No legacy is so rich as honesty, humility, and gratitude toward your family.", "Parents & Gratitude", "Traditional Wisdom"),
+        ("Difficulties in life do not come to destroy you, but to help you realize your hidden potential and power.", "Patience & Hope", "A.P.J. Abdul Kalam")
+    ]
+
+    for idx, q in enumerate(quotes):
+        cursor.execute("""
+            INSERT INTO daily_quotes (quote, quote_text, category, author, day_offset)
+            VALUES (?, ?, ?, ?, ?)
+        """, (q[0], q[0], q[1], q[2], idx))
     conn.commit()
