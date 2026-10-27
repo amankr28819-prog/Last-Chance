@@ -1,9 +1,20 @@
-// StudyPilot API Client
+// Last Chance API Client
 const API_BASE = '';
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('lc_token');
+  const headers = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 const API = {
   async get(endpoint) {
-    const res = await fetch(`${API_BASE}${endpoint}`);
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      headers: { ...getAuthHeaders() }
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || 'Network request failed');
@@ -11,10 +22,13 @@ const API = {
     return res.json();
   },
 
-  async post(endpoint, data) {
+  async post(endpoint, data = {}) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify(data)
     });
     if (!res.ok) {
@@ -24,10 +38,13 @@ const API = {
     return res.json();
   },
 
-  async put(endpoint, data) {
+  async put(endpoint, data = {}) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify(data)
     });
     if (!res.ok) {
@@ -38,7 +55,10 @@ const API = {
   },
 
   async delete(endpoint) {
-    const res = await fetch(`${API_BASE}${endpoint}`, { method: 'DELETE' });
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeaders() }
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || 'Network request failed');
@@ -49,6 +69,7 @@ const API = {
   async upload(endpoint, formData) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
+      headers: { ...getAuthHeaders() },
       body: formData
     });
     if (!res.ok) {
@@ -158,6 +179,62 @@ const API = {
   getEnglishStatus: (dateStr = null) => API.get(`/api/english/status${dateStr ? '?date_str=' + dateStr : ''}`),
   saveEnglishSimple: (data) => API.post('/api/english/simple-log', data),
 
+  // Shifts and Day Schedule
+  getScheduleDay: (dateStr) => API.get(`/api/schedule/day?date_str=${dateStr}`),
+  completeShift: (id, data) => API.post(`/api/schedule/${id}/complete_shift`, data),
+  partialShift: (id, data) => API.post(`/api/schedule/${id}/partial`, data),
+  rescheduleShift: (id, data) => API.post(`/api/schedule/${id}/reschedule`, data),
+  undoReschedule: (historyId) => API.post('/api/schedule/reschedule-undo', { history_id: historyId }),
+  getRescheduledTasks: () => API.get('/api/schedule/rescheduled'),
+  autoReschedule: (dateStr = null) => API.post(`/api/schedule/auto-reschedule${dateStr ? '?date_str=' + dateStr : ''}`, {}),
+
+  // Timetable Import
+  previewTimetable: () => API.get('/api/import/preview'),
+  importOfficialTimetable: () => API.post('/api/import/timetable', {}),
+
+  // Study Time Totals
+  getStudyTotals: () => API.get('/api/study-time/totals'),
+
+  // Wasted Time
+  deleteWastedLog: (id) => API.delete(`/api/wasted-time/log/${id}`),
+
+  // Handouts & Syllabus
+  getHandouts: (courseId = null, unitNumber = null, search = null) => {
+    let url = '/api/handouts';
+    const params = [];
+    if (courseId) params.push(`course_id=${courseId}`);
+    if (unitNumber) params.push(`unit_number=${unitNumber}`);
+    if (search) params.push(`search=${encodeURIComponent(search)}`);
+    if (params.length) url += `?${params.join('&')}`;
+    return API.get(url);
+  },
+  uploadHandout: (formData) => API.upload('/api/handouts', formData),
+  updateHandout: (id, data) => API.put(`/api/handouts/${id}`, data),
+  deleteHandout: (id) => API.delete(`/api/handouts/${id}`),
+
+  // Syllabus Tracker & Topic Audit
+  getSyllabusTracker: () => API.get('/api/syllabus/tracker'),
+  updateTopicStatusAudit: (topicId, masteryLevel, difficultyLevel = null, needsRevision = null, notes = null) =>
+    API.put(`/api/topics/${topicId}/status`, {
+      mastery_level: masteryLevel,
+      difficulty_level: difficultyLevel,
+      needs_revision: needsRevision,
+      notes: notes
+    }),
+
+  // Doubts / Questions
+  getDoubts: (status = null) => API.get(`/api/doubts${status ? '?status=' + status : ''}`),
+  addDoubt: (data) => API.post('/api/doubts', data),
+  resolveDoubt: (id, notes = '') => API.put(`/api/doubts/${id}/resolve`, { notes }),
+
+  // Weekly Review & Global Search
+  getWeeklyReview: (dateStr = null) => API.get(`/api/weekly-review${dateStr ? '?date_str=' + dateStr : ''}`),
+  globalSearch: (q) => API.get(`/api/search?q=${encodeURIComponent(q)}`),
+
+  // Quote of the day favorites
+  getFavoriteQuotes: () => API.get('/api/quotes/favorites'),
+  saveFavoriteQuote: (quoteText, author = '') => API.post('/api/quotes/favorites', { quote_text: quoteText, author }),
+
   // Courses & Units Checklist Hierarchy
   getCourses: () => API.get('/api/courses'),
 
@@ -167,6 +244,34 @@ const API = {
     return API.upload('/api/import/upload', fd);
   },
   commitSyllabus: (data) => API.post('/api/import/commit', data),
+
+  // Redo / Practice Again Queue
+  getRedoTasks: (status = null, course = null) => {
+    let url = '/api/redo';
+    const params = [];
+    if (status) params.push(`status=${status}`);
+    if (course) params.push(`course=${encodeURIComponent(course)}`);
+    if (params.length) url += `?${params.join('&')}`;
+    return API.get(url);
+  },
+  addRedoTask: (data) => API.post('/api/redo', data),
+  updateRedoTask: (id, data) => API.put(`/api/redo/${id}`, data),
+  completeRedoTask: (id) => API.post(`/api/redo/${id}/complete`, {}),
+  deleteRedoTask: (id) => API.delete(`/api/redo/${id}`),
+
+  // DSA Extended
+  getAllDSAQuestions: () => API.get('/api/dsa/all-questions'),
+  replaceDSAQuestion: (assignmentId, newQuestionId) => API.post(`/api/dsa/${assignmentId}/replace`, { new_question_id: newQuestionId }),
+  updateDSANotes: (assignmentId, data) => API.put(`/api/dsa/${assignmentId}/notes`, data),
+
+  // Missing Materials Checklist
+  getMissingMaterialsChecklist: () => API.get('/api/handouts/missing-checklist'),
+
+  // Authentication & Profile
+  login: (username, password) => API.post('/api/auth/login', { username, password }),
+  register: (data) => API.post('/api/auth/register', data),
+  getCurrentUser: () => API.get('/api/auth/me'),
+  updateTheme: (theme) => API.put('/api/auth/theme', { theme }),
 
   exportBackup: () => API.get('/api/backup/export'),
   restoreBackup: (data) => API.post('/api/backup/restore', data)

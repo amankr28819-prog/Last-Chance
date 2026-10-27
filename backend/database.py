@@ -19,7 +19,7 @@ def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
         except Exception:
             pass
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA journal_mode = WAL;")
@@ -250,6 +250,97 @@ def init_db(db_path: str = DB_PATH):
         minutes INTEGER NOT NULL,
         reason TEXT,
         category TEXT NOT NULL DEFAULT 'Unproductive Time',
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS handouts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT NOT NULL,
+        original_filename TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        file_size INTEGER NOT NULL DEFAULT 0,
+        subject_id INTEGER NOT NULL,
+        unit_id INTEGER,
+        topic_id INTEGER,
+        file_path TEXT NOT NULL,
+        upload_date TEXT NOT NULL DEFAULT (datetime('now')),
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+        FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL,
+        FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS doubts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schedule_id INTEGER,
+        subject_id INTEGER NOT NULL,
+        topic_id INTEGER,
+        doubt_text TEXT NOT NULL,
+        answer_text TEXT,
+        status TEXT NOT NULL DEFAULT 'UNRESOLVED', -- UNRESOLVED, RESOLVED
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at TEXT,
+        FOREIGN KEY (schedule_id) REFERENCES study_schedules(id) ON DELETE SET NULL,
+        FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+        FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS rescheduled_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schedule_id INTEGER NOT NULL,
+        original_date TEXT NOT NULL,
+        from_date TEXT NOT NULL,
+        to_date TEXT NOT NULL,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'ACTIVE', -- ACTIVE, UNDONE
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (schedule_id) REFERENCES study_schedules(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS quote_favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quote_text TEXT NOT NULL,
+        author TEXT DEFAULT 'Unknown',
+        category TEXT DEFAULT 'Inspiration',
+        favorited_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(quote_text)
+    );
+
+    CREATE TABLE IF NOT EXISTS redo_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schedule_id INTEGER,
+        topic_id INTEGER,
+        subject_id INTEGER,
+        topic_title TEXT NOT NULL,
+        course_code TEXT,
+        course_name TEXT,
+        unit_number INTEGER,
+        unit_title TEXT,
+        original_completion_date TEXT,
+        added_to_redo_date TEXT NOT NULL,
+        due_date TEXT,
+        priority TEXT DEFAULT 'MEDIUM', -- 'LOW', 'MEDIUM', 'HIGH', 'URGENT'
+        reason TEXT,
+        status TEXT DEFAULT 'PENDING', -- 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'POSTPONED'
+        redo_count INTEGER DEFAULT 0,
+        last_practiced_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (schedule_id) REFERENCES study_schedules(id) ON DELETE SET NULL,
+        FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE,
+        password_hash TEXT NOT NULL,
+        full_name TEXT DEFAULT 'Student',
+        is_active INTEGER DEFAULT 1,
+        theme_preference TEXT DEFAULT 'dark',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     """)
@@ -267,6 +358,24 @@ def init_db(db_path: str = DB_PATH):
     add_col_if_missing("daily_english_logs", "actual_minutes", "INTEGER DEFAULT 0")
     add_col_if_missing("daily_english_logs", "shortfall_minutes", "INTEGER DEFAULT 0")
     add_col_if_missing("daily_dsa_assignments", "topic_name", "TEXT")
+    add_col_if_missing("wasted_time_logs", "notes", "TEXT")
+    
+    # Study schedules extra columns for timetable & shifts
+    add_col_if_missing("study_schedules", "shift_number", "INTEGER DEFAULT 1")
+    add_col_if_missing("study_schedules", "original_date", "TEXT")
+    add_col_if_missing("study_schedules", "task_description", "TEXT")
+    add_col_if_missing("study_schedules", "unit_name", "TEXT")
+    add_col_if_missing("study_schedules", "remaining_minutes", "INTEGER DEFAULT 45")
+    add_col_if_missing("study_schedules", "is_wrapup", "INTEGER DEFAULT 0")
+    add_col_if_missing("study_schedules", "rescheduled_count", "INTEGER DEFAULT 0")
+    add_col_if_missing("study_schedules", "rescheduled_reason", "TEXT")
+    add_col_if_missing("study_schedules", "is_interrupted", "INTEGER DEFAULT 0")
+
+    # Topics extra columns for weak topics & revision
+    add_col_if_missing("topics", "difficulty_level", "TEXT DEFAULT 'MODERATE'")
+    add_col_if_missing("topics", "needs_revision", "INTEGER DEFAULT 0")
+    add_col_if_missing("topics", "last_studied_at", "TEXT")
+
     seed_initial_data_if_empty(conn)
     seed_dsa_questions_if_empty(conn)
     seed_english_topics_if_empty(conn)
@@ -1570,4 +1679,1551 @@ def save_english_practice(conn: sqlite3.Connection, log_date: str, actual_minute
     conn.commit()
 
     return get_english_status_today(conn, log_date)
+
+
+# =====================================================================
+# --- TIMETABLE SHIFTS, RESCHEDULING & REAL-TIME STUDY MANAGEMENT ---
+# =====================================================================
+
+def get_daily_study_plan(conn: sqlite3.Connection, target_date: str) -> Dict[str, Any]:
+    """
+    Returns the day's study plan with 5 academic shifts + 1 wrap-up block.
+    Distinguishes scheduled, completed, partially completed, overdue, and rescheduled tasks.
+    """
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            s.id, s.scheduled_date, s.original_date, s.shift_number, s.duration_minutes,
+            s.remaining_minutes, s.actual_minutes, s.status, s.task_type, s.priority,
+            s.task_description, s.unit_name, s.notes, s.is_wrapup, s.is_interrupted,
+            s.rescheduled_count, s.rescheduled_reason, s.completed_at,
+            subj.id as subject_id, subj.code as subject_code, subj.name as subject_name, subj.color as subject_color,
+            top.id as topic_id, top.title as topic_title, top.mastery_level, top.difficulty_level, top.needs_revision,
+            u.id as unit_id, u.unit_number, u.title as unit_title
+        FROM study_schedules s
+        LEFT JOIN subjects subj ON s.subject_id = subj.id
+        LEFT JOIN topics top ON s.topic_id = top.id
+        LEFT JOIN units u ON top.unit_id = u.id
+        WHERE s.scheduled_date = ?
+        ORDER BY s.is_wrapup ASC, s.shift_number ASC
+    """, (target_date,))
+    rows = [dict(r) for r in cursor.fetchall()]
+
+    shifts = [r for r in rows if not r.get("is_wrapup")]
+    wrapups = [r for r in rows if r.get("is_wrapup")]
+
+    # Calculate daily statistics
+    acad_completed = sum(r["actual_minutes"] or 0 for r in shifts)
+    acad_planned = sum(r["duration_minutes"] or 45 for r in shifts)
+    acad_target = int(get_setting(conn, "daily_academic_target_minutes", 240))
+    acad_remaining = max(0, acad_target - acad_completed)
+    completed_shifts_count = sum(1 for r in shifts if r["status"] == "COMPLETED")
+    wrapup_done = any(w["status"] == "COMPLETED" or (w["actual_minutes"] or 0) > 0 for w in wrapups)
+
+    # Workload warning if planned > 240
+    is_overloaded = acad_planned > 240
+
+    return {
+        "date": target_date,
+        "academic_target_minutes": acad_target,
+        "academic_completed_minutes": acad_completed,
+        "academic_planned_minutes": acad_planned,
+        "academic_remaining_minutes": acad_remaining,
+        "academic_progress_pct": min(100.0, round((acad_completed / acad_target) * 100, 2)) if acad_target > 0 else 0,
+        "extra_academic_minutes": max(0, acad_completed - acad_target),
+        "shifts_total": len(shifts),
+        "shifts_completed": completed_shifts_count,
+        "wrapup_completed": wrapup_done,
+        "is_overloaded": is_overloaded,
+        "shifts": shifts,
+        "wrapup": wrapups[0] if wrapups else None
+    }
+
+def complete_study_shift(conn: sqlite3.Connection, schedule_id: int, actual_minutes: int = 45, notes: Optional[str] = None) -> Dict[str, Any]:
+    """Marks a study shift as completed, records session history, updates topic progress."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM study_schedules WHERE id = ?", (schedule_id,))
+    shift = cursor.fetchone()
+    if not shift:
+        raise ValueError(f"Study schedule with ID {schedule_id} not found.")
+
+    shift_dict = dict(shift)
+    now_iso = datetime.now().isoformat()
+    final_actual = actual_minutes if actual_minutes is not None else shift_dict.get("duration_minutes", 45)
+    existing_notes = shift_dict.get("notes") or ""
+    final_notes = f"{existing_notes} {notes}".strip() if notes else existing_notes
+
+    cursor.execute("""
+        UPDATE study_schedules SET
+            status = 'COMPLETED',
+            actual_minutes = ?,
+            remaining_minutes = 0,
+            completion_percentage = 100,
+            completed_at = ?,
+            notes = ?
+        WHERE id = ?
+    """, (final_actual, now_iso, final_notes, schedule_id))
+
+    # Record persistent study session
+    cursor.execute("""
+        INSERT INTO study_sessions (
+            topic_id, schedule_id, started_at, ended_at, duration_seconds,
+            actual_minutes, notes, completion_percentage
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 100)
+    """, (
+        shift_dict.get("topic_id", 1), schedule_id, now_iso, now_iso,
+        final_actual * 60, final_actual, final_notes
+    ))
+
+    # Update topic last studied
+    if shift_dict.get("topic_id"):
+        cursor.execute("UPDATE topics SET last_studied_at = ? WHERE id = ?", (now_iso, shift_dict["topic_id"]))
+
+    conn.commit()
+
+    # Varied motivational message
+    import random
+    messages = [
+        "Great work! One more step forward.",
+        "Excellent consistency. Keep going!",
+        "You completed this shift. Build on that progress.",
+        "Small steps every day create real progress.",
+        "Discipline in action. Outstanding effort!",
+        "Another milestone reached today. Keep the momentum!",
+        "Quality focus session completed. Proud of your commitment."
+    ]
+    appreciation = random.choice(messages)
+
+    return {
+        "status": "success",
+        "success": True,
+        "schedule_id": schedule_id,
+        "shift_status": "COMPLETED",
+        "actual_minutes": final_actual,
+        "appreciation": appreciation
+    }
+
+def partially_complete_study_shift(conn: sqlite3.Connection, schedule_id: int, actual_minutes: int, notes: Optional[str] = None, is_interrupted: bool = False) -> Dict[str, Any]:
+    """Records partial study progress for a shift and updates remaining duration."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM study_schedules WHERE id = ?", (schedule_id,))
+    shift = cursor.fetchone()
+    if not shift:
+        raise ValueError(f"Study schedule with ID {schedule_id} not found.")
+
+    shift_dict = dict(shift)
+    dur = shift_dict.get("duration_minutes", 45)
+
+    if actual_minutes >= dur:
+        return complete_study_shift(conn, schedule_id, actual_minutes, notes)
+
+    remaining = max(0, dur - actual_minutes)
+    pct = int((actual_minutes / dur) * 100) if dur > 0 else 0
+    now_iso = datetime.now().isoformat()
+    existing_notes = shift_dict.get("notes") or ""
+    final_notes = f"{existing_notes} {notes}".strip() if notes else existing_notes
+
+    cursor.execute("""
+        UPDATE study_schedules SET
+            status = 'PARTIALLY_COMPLETED',
+            actual_minutes = ?,
+            remaining_minutes = ?,
+            completion_percentage = ?,
+            is_interrupted = ?,
+            notes = ?
+        WHERE id = ?
+    """, (actual_minutes, remaining, pct, 1 if is_interrupted else 0, final_notes, schedule_id))
+
+    # Record persistent study session for the actual time spent
+    cursor.execute("""
+        INSERT INTO study_sessions (
+            topic_id, schedule_id, started_at, ended_at, duration_seconds,
+            actual_minutes, notes, completion_percentage
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        shift_dict.get("topic_id", 1), schedule_id, now_iso, now_iso,
+        actual_minutes * 60, actual_minutes, final_notes, pct
+    ))
+
+    conn.commit()
+
+    return {
+        "status": "partial_success",
+        "success": True,
+        "schedule_id": schedule_id,
+        "shift_status": "PARTIALLY_COMPLETED",
+        "actual_minutes": actual_minutes,
+        "remaining_minutes": remaining,
+        "completion_percentage": pct,
+        "is_interrupted": is_interrupted
+    }
+
+def reschedule_study_shift(conn: sqlite3.Connection, schedule_id: int, to_date: str, reason: str = "Unfinished task moved") -> Dict[str, Any]:
+    """Reschedules a study shift to a future date while preserving original planned date and tracking history."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM study_schedules WHERE id = ?", (schedule_id,))
+    shift = cursor.fetchone()
+    if not shift:
+        raise ValueError(f"Study schedule with ID {schedule_id} not found.")
+
+    shift_dict = dict(shift)
+    orig_date = shift_dict.get("original_date") or shift_dict["scheduled_date"]
+    from_date = shift_dict["scheduled_date"]
+
+    # Record in history table
+    cursor.execute("""
+        INSERT INTO rescheduled_history (schedule_id, original_date, from_date, to_date, reason, status)
+        VALUES (?, ?, ?, ?, ?, 'ACTIVE')
+    """, (schedule_id, orig_date, from_date, to_date, reason))
+    history_id = cursor.lastrowid
+
+    # Update schedule row
+    new_count = (shift_dict.get("rescheduled_count") or 0) + 1
+    cursor.execute("""
+        UPDATE study_schedules SET
+            scheduled_date = ?,
+            original_date = ?,
+            rescheduled_count = ?,
+            rescheduled_reason = ?,
+            status = 'PENDING'
+        WHERE id = ?
+    """, (to_date, orig_date, new_count, reason, schedule_id))
+
+    # Check future day load
+    cursor.execute("SELECT COALESCE(SUM(duration_minutes), 0) as total FROM study_schedules WHERE scheduled_date = ? AND is_wrapup = 0", (to_date,))
+    future_load = cursor.fetchone()["total"]
+    conn.commit()
+
+    is_overloaded = future_load > 240
+    return {
+        "status": "rescheduled",
+        "success": True,
+        "schedule_id": schedule_id,
+        "history_id": history_id,
+        "original_date": orig_date,
+        "from_date": from_date,
+        "to_date": to_date,
+        "new_date": to_date,
+        "target_day_workload_minutes": future_load,
+        "target_day_overloaded": is_overloaded,
+        "warning": f"Target date {to_date} now has {future_load}m of planned academic study (Target: 240m)." if is_overloaded else None
+    }
+
+def undo_reschedule_shift(conn: sqlite3.Connection, history_id: int) -> Dict[str, Any]:
+    """Undoes a previous rescheduling action and restores the shift to its previous date."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM rescheduled_history WHERE id = ?", (history_id,))
+    hist = cursor.fetchone()
+    if not hist:
+        raise ValueError(f"Rescheduling history record with ID {history_id} not found.")
+
+    h_dict = dict(hist)
+    if h_dict["status"] == "UNDONE":
+        return {"status": "already_undone", "success": False, "message": "This rescheduling action was already undone."}
+
+    # Restore schedule to from_date
+    cursor.execute("""
+        UPDATE study_schedules SET
+            scheduled_date = ?
+        WHERE id = ?
+    """, (h_dict["from_date"], h_dict["schedule_id"]))
+
+    cursor.execute("UPDATE rescheduled_history SET status = 'UNDONE' WHERE id = ?", (history_id,))
+    conn.commit()
+
+    return {
+        "status": "undone",
+        "success": True,
+        "schedule_id": h_dict["schedule_id"],
+        "restored_to_date": h_dict["from_date"]
+    }
+
+def get_rescheduled_tasks(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    """Returns all rescheduled tasks with original dates, new dates, and reasons."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            h.id as history_id, h.id as latest_history_id, h.schedule_id, h.schedule_id as id, h.original_date, h.from_date, h.to_date, h.reason,
+            h.status as history_status, h.created_at as rescheduled_at,
+            s.task_description, s.duration_minutes, s.actual_minutes, s.status as current_status,
+            subj.code as subject_code, subj.name as subject_name, subj.color as subject_color
+        FROM rescheduled_history h
+        JOIN study_schedules s ON h.schedule_id = s.id
+        LEFT JOIN subjects subj ON s.subject_id = subj.id
+        ORDER BY h.created_at DESC
+    """)
+    return [dict(r) for r in cursor.fetchall()]
+
+def auto_reschedule_overdue_tasks(conn: sqlite3.Connection, current_date_str: str) -> Dict[str, Any]:
+    """
+    Deterministic automatic rescheduling:
+    Moves any uncompleted academic shifts from past dates (< current_date_str)
+    to future slots, prioritizing Discrete Structures (CSN 3003).
+    """
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT s.id, s.scheduled_date, s.original_date, s.duration_minutes, s.remaining_minutes,
+               s.task_description, subj.code as subject_code
+        FROM study_schedules s
+        JOIN subjects subj ON s.subject_id = subj.id
+        WHERE s.scheduled_date < ? 
+          AND s.status IN ('PENDING', 'PARTIALLY_COMPLETED')
+          AND s.is_wrapup = 0
+        ORDER BY 
+            CASE WHEN subj.code = 'CSN 3003' THEN 1 ELSE 2 END ASC,
+            s.scheduled_date ASC, s.shift_number ASC
+    """, (current_date_str,))
+    overdue_shifts = [dict(r) for r in cursor.fetchall()]
+
+    if not overdue_shifts:
+        return {"status": "no_overdue", "moved_count": 0, "messages": ["No overdue unfinished shifts found."]}
+
+    # Target date: move to current_date_str backlog
+    moved_count = 0
+    warnings = []
+    for shift in overdue_shifts:
+        orig = shift.get("original_date") or shift["scheduled_date"]
+        # Reschedule to current date
+        cursor.execute("""
+            INSERT INTO rescheduled_history (schedule_id, original_date, from_date, to_date, reason, status)
+            VALUES (?, ?, ?, ?, 'Automated end-of-day backlog roll-forward', 'ACTIVE')
+        """, (shift["id"], orig, shift["scheduled_date"], current_date_str))
+
+        cursor.execute("""
+            UPDATE study_schedules SET
+                scheduled_date = ?,
+                original_date = ?,
+                rescheduled_count = rescheduled_count + 1,
+                rescheduled_reason = 'Automated backlog reschedule'
+            WHERE id = ?
+        """, (current_date_str, orig, shift["id"]))
+        moved_count += 1
+
+    # Check workload on current date
+    cursor.execute("SELECT COALESCE(SUM(duration_minutes), 0) as total FROM study_schedules WHERE scheduled_date = ? AND is_wrapup = 0", (current_date_str,))
+    day_load = cursor.fetchone()["total"]
+    conn.commit()
+
+    if day_load > 240:
+        warnings.append(f"Day {current_date_str} is currently overloaded with {day_load}m of study tasks. Consider spreading backlog items across subsequent days.")
+
+    return {
+        "status": "success",
+        "moved_count": moved_count,
+        "target_date": current_date_str,
+        "day_workload_minutes": day_load,
+        "warnings": warnings
+    }
+
+# =====================================================================
+# --- TOTAL STUDY TIME COUNTER & SESSION AUDIT ---
+# =====================================================================
+
+def get_cumulative_study_totals(conn: sqlite3.Connection, target_date_str: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Calculates cumulative study time across all categories from real saved records:
+    Academic Study, DSA Practice, English Speaking, Wrap-up/Revision.
+    Avoids double-counting and separates paused/wasted time.
+    """
+    cursor = conn.cursor()
+    ref_date_str = target_date_str or datetime.now().strftime("%Y-%m-%d")
+
+    # 1. Total Academic Study Time (study_schedules is_wrapup = 0)
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE is_wrapup = 0")
+    total_academic_mins = cursor.fetchone()["total"]
+
+    # 2. Total DSA Practice Time (daily_dsa_assignments)
+    cursor.execute("SELECT COALESCE(SUM(time_spent_minutes), 0) as total FROM daily_dsa_assignments WHERE status = 'Solved'")
+    total_dsa_mins = cursor.fetchone()["total"]
+
+    # 3. Total English Speaking Time (daily_english_logs)
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM daily_english_logs")
+    total_english_mins = cursor.fetchone()["total"]
+
+    # 4. Total Wrap-up & Revision Time
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE is_wrapup = 1 OR task_type = 'REVISION'")
+    total_wrapup_mins = cursor.fetchone()["total"]
+
+    # Today's academic study time
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE scheduled_date = ? AND is_wrapup = 0", (ref_date_str,))
+    today_academic_mins = cursor.fetchone()["total"]
+
+    # This week's study time (Monday to Sunday)
+    try:
+        dt = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
+    except Exception:
+        dt = date.today()
+    w_start = (dt - timedelta(days=dt.weekday())).strftime("%Y-%m-%d")
+    w_end = (dt - timedelta(days=dt.weekday()) + timedelta(days=6)).strftime("%Y-%m-%d")
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE scheduled_date BETWEEN ? AND ? AND is_wrapup = 0", (w_start, w_end))
+    week_academic_mins = cursor.fetchone()["total"]
+
+    # This month's study time
+    m_prefix = ref_date_str[:7]
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE scheduled_date LIKE ? AND is_wrapup = 0", (f"{m_prefix}%",))
+    month_academic_mins = cursor.fetchone()["total"]
+
+    # Study time since timetable start (2026-10-27)
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE scheduled_date >= '2026-10-27' AND is_wrapup = 0")
+    timetable_academic_mins = cursor.fetchone()["total"]
+
+    # Helper formatter
+    def fmt(mins: int) -> str:
+        h = mins // 60
+        m = mins % 60
+        if h == 0:
+            return f"{m} minutes"
+        elif m == 0:
+            return f"{h} hours"
+        return f"{h} hours {m} minutes"
+
+    # Recent session history for audit
+    cursor.execute("""
+        SELECT sess.id, sess.started_at, sess.duration_seconds, sess.actual_minutes, sess.notes,
+               top.title as topic_title, subj.name as subject_name, subj.code as subject_code
+        FROM study_sessions sess
+        LEFT JOIN topics top ON sess.topic_id = top.id
+        LEFT JOIN subjects subj ON top.subject_id = subj.id
+        ORDER BY sess.id DESC
+        LIMIT 30
+    """)
+    recent_sessions = [dict(r) for r in cursor.fetchall()]
+
+    grand_total_mins = total_academic_mins + total_dsa_mins + total_english_mins + total_wrapup_mins
+
+    return {
+        "grand_total_minutes": grand_total_mins,
+        "grand_total_formatted": fmt(grand_total_mins),
+        "total_academic_minutes": total_academic_mins,
+        "total_dsa_minutes": total_dsa_mins,
+        "total_english_minutes": total_english_mins,
+        "total_wrapup_minutes": total_wrapup_mins,
+        "academic": {
+            "total_minutes": total_academic_mins,
+            "formatted": fmt(total_academic_mins),
+            "today_minutes": today_academic_mins,
+            "today_formatted": fmt(today_academic_mins),
+            "week_minutes": week_academic_mins,
+            "week_formatted": fmt(week_academic_mins),
+            "month_minutes": month_academic_mins,
+            "month_formatted": fmt(month_academic_mins),
+            "timetable_since_oct27_minutes": timetable_academic_mins,
+            "timetable_since_oct27_formatted": fmt(timetable_academic_mins)
+        },
+        "dsa": {
+            "total_minutes": total_dsa_mins,
+            "formatted": fmt(total_dsa_mins)
+        },
+        "english": {
+            "total_minutes": total_english_mins,
+            "formatted": fmt(total_english_mins)
+        },
+        "wrapup_revision": {
+            "total_minutes": total_wrapup_mins,
+            "formatted": fmt(total_wrapup_mins)
+        },
+        "recent_sessions": recent_sessions
+    }
+
+# =====================================================================
+# --- WASTED TIME & SHORTFALL SEPARATION ---
+# =====================================================================
+
+def get_enhanced_wasted_time_summary(conn: sqlite3.Connection, target_date: str) -> Dict[str, Any]:
+    """
+    Clearly distinguishes:
+    1. Confirmed Wasted Time (manually logged unproductive/distracted minutes)
+    2. Academic Target Shortfall (max(0, 240 - actual_study))
+    3. Unfinished Scheduled Work (planned tasks remaining)
+    4. Unaccounted Time
+    Never conflates them into a single misleading metric.
+    """
+    cursor = conn.cursor()
+
+    # Confirmed Wasted Time Today
+    cursor.execute("SELECT COALESCE(SUM(minutes), 0) as total FROM wasted_time_logs WHERE log_date = ?", (target_date,))
+    confirmed_today = cursor.fetchone()["total"]
+
+    # Calculate weekly bounds (Monday to Sunday)
+    try:
+        dt = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except Exception:
+        dt = date.today()
+    w_start = (dt - timedelta(days=dt.weekday())).strftime("%Y-%m-%d")
+    w_end = (dt - timedelta(days=dt.weekday()) + timedelta(days=6)).strftime("%Y-%m-%d")
+    m_prefix = target_date[:7]
+
+    # Weekly & Monthly Confirmed Wasted
+    cursor.execute("SELECT COALESCE(SUM(minutes), 0) as total FROM wasted_time_logs WHERE log_date BETWEEN ? AND ?", (w_start, w_end))
+    confirmed_week = cursor.fetchone()["total"]
+
+    cursor.execute("SELECT COALESCE(SUM(minutes), 0) as total FROM wasted_time_logs WHERE log_date LIKE ?", (f"{m_prefix}%",))
+    confirmed_month = cursor.fetchone()["total"]
+
+    # Academic Target Shortfall Today
+    acad_target = int(get_setting(conn, "daily_academic_target_minutes", 240))
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE scheduled_date = ? AND is_wrapup = 0", (target_date,))
+    acad_actual = cursor.fetchone()["total"]
+    shortfall_today = max(0, acad_target - acad_actual)
+
+    # Weekly academic shortfall
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE scheduled_date BETWEEN ? AND ? AND scheduled_date <= ? AND is_wrapup = 0", (w_start, w_end, target_date))
+    days_elapsed_in_week = (dt.weekday() + 1)
+    week_target = acad_target * days_elapsed_in_week
+    week_actual = cursor.fetchone()["total"]
+    shortfall_week = max(0, week_target - week_actual)
+
+    # Unfinished scheduled work (minutes left on today's tasks)
+    cursor.execute("""
+        SELECT COALESCE(SUM(remaining_minutes), 0) as total
+        FROM study_schedules
+        WHERE scheduled_date = ? AND status != 'COMPLETED' AND is_wrapup = 0
+    """, (target_date,))
+    unfinished_today = cursor.fetchone()["total"]
+
+    # List of individual wasted logs for today
+    cursor.execute("""
+        SELECT id, log_date, minutes, reason, category, notes, created_at
+        FROM wasted_time_logs
+        WHERE log_date = ?
+        ORDER BY id DESC
+    """, (target_date,))
+    logs_today = [dict(r) for r in cursor.fetchall()]
+
+    today_summary = {
+        "confirmed_wasted_minutes": confirmed_today,
+        "academic_shortfall_minutes": shortfall_today,
+        "academic_target_minutes": acad_target,
+        "academic_actual_minutes": acad_actual,
+        "unfinished_scheduled_minutes": unfinished_today
+    }
+
+    return {
+        "date": target_date,
+        "week_range": f"{w_start} to {w_end}",
+        "today": today_summary,
+        "recent_logs": logs_today,
+        "confirmed_wasted": {
+            "today_minutes": confirmed_today,
+            "week_minutes": confirmed_week,
+            "month_minutes": confirmed_month
+        },
+        "academic_shortfall": {
+            "target_minutes": acad_target,
+            "actual_minutes": acad_actual,
+            "shortfall_today_minutes": shortfall_today,
+            "week_target_minutes": week_target,
+            "week_actual_minutes": week_actual,
+            "shortfall_week_minutes": shortfall_week
+        },
+        "unfinished_scheduled_work_minutes": unfinished_today,
+        "logs": logs_today,
+        "explanation": "Confirmed wasted time is explicitly recorded unproductive time. Target shortfall is simply unstudied time below your 4-hour target. They are tracked separately to avoid double-counting."
+    }
+
+def delete_wasted_time_log(conn: sqlite3.Connection, log_id: int) -> bool:
+    """Deletes a mistakenly logged wasted time entry."""
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM wasted_time_logs WHERE id = ?", (log_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+# =====================================================================
+# --- HANDOUTS & SYLLABUS MANAGEMENT ---
+# =====================================================================
+
+def add_handout(conn: sqlite3.Connection, filename: str, original_filename: str, file_type: str, file_size: int, subject_id: int, unit_id: Optional[int], topic_id: Optional[int], file_path: str, notes: Optional[str] = None) -> int:
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO handouts (filename, original_filename, file_type, file_size, subject_id, unit_id, topic_id, file_path, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (filename, original_filename, file_type.lower(), file_size, subject_id, unit_id, topic_id, file_path, notes))
+    conn.commit()
+    return cursor.lastrowid
+
+def get_handouts(conn: sqlite3.Connection, subject_id: Optional[int] = None, unit_id: Optional[int] = None, search: Optional[str] = None) -> List[Dict[str, Any]]:
+    cursor = conn.cursor()
+    query = """
+        SELECT 
+            h.id, h.filename, h.original_filename, h.file_type, h.file_size, h.file_path,
+            h.upload_date, h.notes,
+            s.id as subject_id, s.code as subject_code, s.name as subject_name, s.color as subject_color,
+            u.id as unit_id, u.unit_number, u.title as unit_title,
+            t.id as topic_id, t.title as topic_title
+        FROM handouts h
+        LEFT JOIN subjects s ON h.subject_id = s.id
+        LEFT JOIN units u ON h.unit_id = u.id
+        LEFT JOIN topics t ON h.topic_id = t.id
+        WHERE 1=1
+    """
+    params = []
+    if subject_id:
+        query += " AND h.subject_id = ?"
+        params.append(subject_id)
+    if unit_id:
+        query += " AND h.unit_id = ?"
+        params.append(unit_id)
+    if search:
+        query += " AND (h.original_filename LIKE ? OR h.notes LIKE ? OR t.title LIKE ?)"
+        s_term = f"%{search}%"
+        params.extend([s_term, s_term, s_term])
+
+    query += " ORDER BY h.id DESC"
+    cursor.execute(query, params)
+    return [dict(r) for r in cursor.fetchall()]
+
+def get_handout_by_id(conn: sqlite3.Connection, handout_id: int) -> Optional[Dict[str, Any]]:
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT h.*, s.code as subject_code, s.name as subject_name
+        FROM handouts h
+        LEFT JOIN subjects s ON h.subject_id = s.id
+        WHERE h.id = ?
+    """, (handout_id,))
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+def update_handout(conn: sqlite3.Connection, handout_id: int, original_filename: Optional[str] = None, subject_id: Optional[int] = None, unit_id: Optional[int] = None, topic_id: Optional[int] = None, notes: Optional[str] = None) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM handouts WHERE id = ?", (handout_id,))
+    if not cursor.fetchone():
+        return False
+    
+    updates = []
+    params = []
+    if original_filename is not None:
+        updates.append("original_filename = ?")
+        params.append(original_filename)
+    if subject_id is not None:
+        updates.append("subject_id = ?")
+        params.append(subject_id)
+    if unit_id is not None:
+        updates.append("unit_id = ?")
+        params.append(unit_id)
+    if topic_id is not None:
+        updates.append("topic_id = ?")
+        params.append(topic_id)
+    if notes is not None:
+        updates.append("notes = ?")
+        params.append(notes)
+
+    if updates:
+        params.append(handout_id)
+        cursor.execute(f"UPDATE handouts SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+    return True
+
+def delete_handout(conn: sqlite3.Connection, handout_id: int) -> Optional[str]:
+    """Deletes handout record from DB and returns file path so file can be removed from disk."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT file_path FROM handouts WHERE id = ?", (handout_id,))
+    row = cursor.fetchone()
+    if not row:
+        return None
+    file_path = row["file_path"]
+    cursor.execute("DELETE FROM handouts WHERE id = ?", (handout_id,))
+    conn.commit()
+    return file_path
+
+# =====================================================================
+# --- LIVE UNIT & SYLLABUS PROGRESS TRACKER ---
+# =====================================================================
+
+def get_syllabus_tracker_data(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    """
+    Returns full syllabus hierarchy across the four courses with verified completion progress,
+    actual study times, weak topic markers, and revision statuses.
+    """
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, code, name, priority, color FROM subjects ORDER BY id ASC")
+    subjects = [dict(s) for s in cursor.fetchall()]
+
+    for s in subjects:
+        s_id = s["id"]
+        # Fetch units
+        cursor.execute("SELECT id, unit_number, title, lecture_allocation FROM units WHERE subject_id = ? ORDER BY unit_number ASC", (s_id,))
+        units = [dict(u) for u in cursor.fetchall()]
+
+        subject_total_topics = 0
+        subject_completed_topics = 0
+        subject_study_mins = 0
+
+        for u in units:
+            u_id = u["id"]
+            cursor.execute("""
+                SELECT 
+                    t.id, t.title, t.order_index, t.mastery_level, t.difficulty_level,
+                    t.is_mandatory, t.needs_revision, t.last_studied_at,
+                    COUNT(DISTINCT s.id) as scheduled_shifts,
+                    SUM(CASE WHEN s.status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_shifts,
+                    COALESCE(SUM(s.actual_minutes), 0) as total_study_minutes
+                FROM topics t
+                LEFT JOIN study_schedules s ON t.id = s.topic_id
+                WHERE t.unit_id = ?
+                GROUP BY t.id
+                ORDER BY t.order_index ASC
+            """, (u_id,))
+            topics = [dict(t) for t in cursor.fetchall()]
+
+            u_total = len(topics)
+            u_completed = sum(1 for t in topics if t["mastery_level"] in ("COMPLETED", "MASTERED", "CONFIDENT"))
+            u_in_progress = sum(1 for t in topics if t["mastery_level"] in ("STUDIED_ONCE", "PARTIALLY_UNDERSTOOD", "IN_PROGRESS"))
+            u_not_started = sum(1 for t in topics if t["mastery_level"] == "NOT_STARTED")
+            u_study_mins = sum(t["total_study_minutes"] for t in topics)
+
+            u["topics"] = topics
+            u["topics_count"] = u_total
+            u["completed_count"] = u_completed
+            u["in_progress_count"] = u_in_progress
+            u["not_started_count"] = u_not_started
+            u["total_study_minutes"] = u_study_mins
+            u["completion_pct"] = round((u_completed / u_total * 100), 1) if u_total > 0 else 0
+
+            subject_total_topics += u_total
+            subject_completed_topics += u_completed
+            subject_study_mins += u_study_mins
+
+        s["units"] = units
+        s["total_units"] = len(units)
+        s["units_completed"] = sum(1 for u in units if u["completion_pct"] >= 100)
+        s["units_in_progress"] = sum(1 for u in units if 0 < u["completion_pct"] < 100)
+        s["units_not_started"] = sum(1 for u in units if u["completion_pct"] == 0)
+        s["total_topics"] = subject_total_topics
+        s["topics_completed"] = subject_completed_topics
+        s["topics_remaining"] = max(0, subject_total_topics - subject_completed_topics)
+        s["total_study_minutes"] = subject_study_mins
+        s["completion_pct"] = round((subject_completed_topics / subject_total_topics * 100), 1) if subject_total_topics > 0 else 0
+
+    return subjects
+
+def update_topic_status_audit(conn: sqlite3.Connection, topic_id: int, mastery_level: Optional[str] = None, difficulty_level: Optional[str] = None, needs_revision: Optional[int] = None) -> Dict[str, Any]:
+    """Updates topic mastery, difficulty tag (Easy/Moderate/Difficult), or revision flag."""
+    cursor = conn.cursor()
+    updates = []
+    params = []
+    if mastery_level is not None:
+        updates.append("mastery_level = ?")
+        params.append(mastery_level)
+    if difficulty_level is not None:
+        updates.append("difficulty_level = ?")
+        params.append(difficulty_level)
+    if needs_revision is not None:
+        updates.append("needs_revision = ?")
+        params.append(needs_revision)
+
+    if updates:
+        params.append(topic_id)
+        cursor.execute(f"UPDATE topics SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+
+    cursor.execute("SELECT * FROM topics WHERE id = ?", (topic_id,))
+    row = cursor.fetchone()
+    return dict(row) if row else {}
+
+# =====================================================================
+# --- DOUBTS & NOTES ATTACHMENT ---
+# =====================================================================
+
+def add_doubt(conn: sqlite3.Connection, subject_id: int, doubt_text: str, schedule_id: Optional[int] = None, topic_id: Optional[int] = None) -> int:
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO doubts (schedule_id, subject_id, topic_id, doubt_text, status)
+        VALUES (?, ?, ?, ?, 'UNRESOLVED')
+    """, (schedule_id, subject_id, topic_id, doubt_text))
+    conn.commit()
+    return cursor.lastrowid
+
+def get_doubts(conn: sqlite3.Connection, status: Optional[str] = None, subject_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    cursor = conn.cursor()
+    query = """
+        SELECT d.id, d.schedule_id, d.subject_id, d.topic_id, d.doubt_text, d.answer_text, d.status, d.created_at, d.resolved_at,
+               s.code as subject_code, s.name as subject_name, s.color as subject_color,
+               t.title as topic_title
+        FROM doubts d
+        JOIN subjects s ON d.subject_id = s.id
+        LEFT JOIN topics t ON d.topic_id = t.id
+        WHERE 1=1
+    """
+    params = []
+    if status:
+        if status.upper() in ('OPEN', 'UNRESOLVED'):
+            query += " AND UPPER(d.status) IN ('OPEN', 'UNRESOLVED')"
+        else:
+            query += " AND UPPER(d.status) = ?"
+            params.append(status.upper())
+    if subject_id:
+        query += " AND d.subject_id = ?"
+        params.append(subject_id)
+    query += " ORDER BY d.id DESC"
+    cursor.execute(query, params)
+    return [dict(r) for r in cursor.fetchall()]
+
+def resolve_doubt(conn: sqlite3.Connection, doubt_id: int, answer_text: str) -> bool:
+    cursor = conn.cursor()
+    now_iso = datetime.now().isoformat()
+    cursor.execute("""
+        UPDATE doubts SET
+            answer_text = ?,
+            status = 'RESOLVED',
+            resolved_at = ?
+        WHERE id = ?
+    """, (answer_text, now_iso, doubt_id))
+    conn.commit()
+    return cursor.rowcount > 0
+
+# =====================================================================
+# --- QUOTE OF THE DAY & FAVORITES ---
+# =====================================================================
+
+def get_stable_quote_of_the_day(conn: sqlite3.Connection, date_str: str) -> Dict[str, Any]:
+    """
+    Returns exactly one quote per local calendar day.
+    Deterministic: stays completely stable across all page refreshes for that date.
+    New quote is provided on the next day.
+    """
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, quote, quote_text, author, category, is_favorite FROM daily_quotes ORDER BY id ASC")
+    quotes = [dict(q) for q in cursor.fetchall()]
+
+    if not quotes:
+        seed_quotes_if_empty(conn)
+        cursor.execute("SELECT id, quote, quote_text, author, category, is_favorite FROM daily_quotes ORDER BY id ASC")
+        quotes = [dict(q) for q in cursor.fetchall()]
+
+    # Hash the calendar date string (YYYY-MM-DD) deterministically
+    date_hash = sum(ord(c) for c in date_str)
+    selected_idx = date_hash % len(quotes)
+    selected_quote = quotes[selected_idx]
+
+    q_text = selected_quote.get("quote_text") or selected_quote.get("quote")
+    # Check if favorited in quote_favorites table
+    cursor.execute("SELECT COUNT(*) as cnt FROM quote_favorites WHERE quote_text = ?", (q_text,))
+    is_fav = cursor.fetchone()["cnt"] > 0 or bool(selected_quote.get("is_favorite"))
+
+    return {
+        "id": selected_quote["id"],
+        "quote": q_text,
+        "quote_text": q_text,
+        "author": selected_quote.get("author") or "Unknown",
+        "category": selected_quote.get("category") or "Consistency & Discipline",
+        "is_favorite": is_fav,
+        "date": date_str
+    }
+
+def toggle_quote_favorite(conn: sqlite3.Connection, quote_identifier: Any, author_or_fav: Any = None, force_fav: Optional[bool] = None, category: str = "Consistency") -> bool:
+    cursor = conn.cursor()
+    # Check if identifier is an integer ID
+    is_id = False
+    if isinstance(quote_identifier, int):
+        is_id = True
+    elif isinstance(quote_identifier, str) and quote_identifier.strip().isdigit():
+        is_id = True
+        quote_identifier = int(quote_identifier.strip())
+
+    if is_id:
+        q_id = quote_identifier
+        is_fav = bool(author_or_fav) if author_or_fav is not None else True
+        if force_fav is not None:
+            is_fav = force_fav
+        cursor.execute("UPDATE daily_quotes SET is_favorite = ? WHERE id = ?", (1 if is_fav else 0, q_id))
+        cursor.execute("SELECT quote, quote_text, author, category FROM daily_quotes WHERE id = ?", (q_id,))
+        q = cursor.fetchone()
+        if q:
+            q_text = q["quote_text"] or q["quote"]
+            if is_fav:
+                cursor.execute("INSERT OR IGNORE INTO quote_favorites (quote_text, author, category) VALUES (?, ?, ?)",
+                               (q_text, q["author"] or "Unknown", q["category"] or category))
+            else:
+                cursor.execute("DELETE FROM quote_favorites WHERE quote_text = ?", (q_text,))
+        conn.commit()
+        return is_fav
+    else:
+        q_text = str(quote_identifier).strip()
+        author = str(author_or_fav) if author_or_fav is not None and not isinstance(author_or_fav, bool) else "Unknown"
+        # Check if already in favorites
+        cursor.execute("SELECT id FROM quote_favorites WHERE quote_text = ?", (q_text,))
+        existing = cursor.fetchone()
+        if force_fav is True or (force_fav is None and not existing):
+            cursor.execute("INSERT OR IGNORE INTO quote_favorites (quote_text, author, category) VALUES (?, ?, ?)",
+                           (q_text, author, category))
+            cursor.execute("UPDATE daily_quotes SET is_favorite = 1 WHERE quote = ? OR quote_text = ?", (q_text, q_text))
+            conn.commit()
+            return True
+        else:
+            cursor.execute("DELETE FROM quote_favorites WHERE quote_text = ?", (q_text,))
+            cursor.execute("UPDATE daily_quotes SET is_favorite = 0 WHERE quote = ? OR quote_text = ?", (q_text, q_text))
+            conn.commit()
+            return False
+
+def get_favorite_quotes(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, quote_text, quote_text as quote, author, category, favorited_at FROM quote_favorites ORDER BY id DESC")
+    return [dict(r) for r in cursor.fetchall()]
+
+# =====================================================================
+# --- GLOBAL SEARCH ACROSS ALL ENTITIES ---
+# =====================================================================
+
+def global_search(conn: sqlite3.Connection, query_term: str) -> Dict[str, Any]:
+    """Searches subjects, units, topics, handouts, study notes, and timetable shifts."""
+    cursor = conn.cursor()
+    q = f"%{query_term.strip()}%"
+
+    # Subjects
+    cursor.execute("SELECT id, code, name FROM subjects WHERE code LIKE ? OR name LIKE ?", (q, q))
+    matched_subjects = [dict(r) for r in cursor.fetchall()]
+
+    # Topics
+    cursor.execute("""
+        SELECT t.id, t.title, u.unit_number, u.title as unit_title, s.code as subject_code, s.name as subject_name
+        FROM topics t
+        JOIN units u ON t.unit_id = u.id
+        JOIN subjects s ON t.subject_id = s.id
+        WHERE t.title LIKE ?
+        LIMIT 10
+    """, (q,))
+    matched_topics = [dict(r) for r in cursor.fetchall()]
+
+    # Handouts
+    cursor.execute("""
+        SELECT h.id, h.original_filename, h.file_type, s.code as subject_code
+        FROM handouts h
+        JOIN subjects s ON h.subject_id = s.id
+        WHERE h.original_filename LIKE ? OR h.notes LIKE ?
+        LIMIT 10
+    """, (q, q))
+    matched_handouts = [dict(r) for r in cursor.fetchall()]
+
+    # Scheduled shifts
+    cursor.execute("""
+        SELECT s.id, s.scheduled_date, s.shift_number, s.task_description, s.status, subj.code as subject_code
+        FROM study_schedules s
+        JOIN subjects subj ON s.subject_id = subj.id
+        WHERE s.task_description LIKE ? OR s.notes LIKE ?
+        LIMIT 10
+    """, (q, q))
+    matched_tasks = [dict(r) for r in cursor.fetchall()]
+
+    return {
+        "query": query_term,
+        "subjects": matched_subjects,
+        "topics": matched_topics,
+        "handouts": matched_handouts,
+        "tasks": matched_tasks
+    }
+
+# =====================================================================
+# --- WEEKLY REVIEW & SUGGESTIONS ---
+# =====================================================================
+
+def get_weekly_review(conn: sqlite3.Connection, target_date_str: str) -> Dict[str, Any]:
+    """
+    At the end of each week (Mon-Sun), displays:
+    Academic hours completed, target achievement, strongest course,
+    course with most unfinished work, confirmed wasted time, completed shifts,
+    suggested priorities for next week based on actual data.
+    """
+    cursor = conn.cursor()
+    try:
+        dt = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+    except Exception:
+        dt = date.today()
+
+    w_start = (dt - timedelta(days=dt.weekday())).strftime("%Y-%m-%d")
+    w_end = (dt - timedelta(days=dt.weekday()) + timedelta(days=6)).strftime("%Y-%m-%d")
+
+    # Academic hours completed in week
+    cursor.execute("SELECT COALESCE(SUM(actual_minutes), 0) as total FROM study_schedules WHERE scheduled_date BETWEEN ? AND ? AND is_wrapup = 0", (w_start, w_end))
+    acad_mins = cursor.fetchone()["total"]
+    acad_target_week = 240 * 7 # 1680 mins (28 hrs)
+    achievement_rate = round((acad_mins / acad_target_week) * 100, 1)
+
+    # Completed shifts
+    cursor.execute("SELECT COUNT(*) as cnt FROM study_schedules WHERE scheduled_date BETWEEN ? AND ? AND status = 'COMPLETED' AND is_wrapup = 0", (w_start, w_end))
+    completed_shifts = cursor.fetchone()["cnt"]
+
+    # Confirmed wasted time in week
+    cursor.execute("SELECT COALESCE(SUM(minutes), 0) as total FROM wasted_time_logs WHERE log_date BETWEEN ? AND ?", (w_start, w_end))
+    wasted_week = cursor.fetchone()["total"]
+
+    # Subject performance in this week
+    cursor.execute("""
+        SELECT subj.code, subj.name,
+               SUM(CASE WHEN s.status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_shifts,
+               SUM(CASE WHEN s.status != 'COMPLETED' THEN 1 ELSE 0 END) as unfinished_shifts,
+               COALESCE(SUM(s.actual_minutes), 0) as study_minutes
+        FROM study_schedules s
+        JOIN subjects subj ON s.subject_id = subj.id
+        WHERE s.scheduled_date BETWEEN ? AND ? AND s.is_wrapup = 0
+        GROUP BY subj.id
+        ORDER BY completed_shifts DESC
+    """, (w_start, w_end))
+    subj_perf = [dict(r) for r in cursor.fetchall()]
+
+    strongest = subj_perf[0]["name"] if subj_perf else "None yet"
+    unfinished_sorted = sorted(subj_perf, key=lambda x: x["unfinished_shifts"], reverse=True)
+    most_unfinished = unfinished_sorted[0]["name"] if unfinished_sorted and unfinished_sorted[0]["unfinished_shifts"] > 0 else "None (all on track!)"
+
+    # Suggested priorities for following week
+    suggestions = []
+    if any(s["code"] == "CSN 3003" and s["unfinished_shifts"] > 0 for s in subj_perf):
+        suggestions.append("Discrete Structures has pending shifts: allocate first morning shifts to finish Unit 2-4 proofs.")
+    suggestions.append("Maintain 30-min English speaking streak and solve 2 DSA questions daily before afternoon.")
+    if wasted_week > 120:
+        suggestions.append(f"Confirmed wasted time ({wasted_week}m) is elevated: use 45-minute focus timer with phone placed away.")
+
+    return {
+        "week_range": f"{w_start} to {w_end}",
+        "academic_hours_completed": round(acad_mins / 60, 1),
+        "academic_minutes_completed": acad_mins,
+        "academic_target_week_minutes": acad_target_week,
+        "target_achievement_percentage": achievement_rate,
+        "completed_shifts_count": completed_shifts,
+        "confirmed_wasted_minutes": wasted_week,
+        "strongest_course": strongest,
+        "course_with_most_unfinished_work": most_unfinished,
+        "subject_breakdown": subj_perf,
+        "suggested_priorities": suggestions
+    }
+
+# =====================================================================
+# --- SAFE DATA BACKUP & RESTORE ---
+# =====================================================================
+
+def export_database_backup(conn: sqlite3.Connection) -> Dict[str, Any]:
+    """Exports all user study records, schedules, wasted logs, handouts, doubts to JSON."""
+    cursor = conn.cursor()
+    backup = {
+        "version": "2.0.0",
+        "exported_at": datetime.now().isoformat(),
+        "tables": {}
+    }
+
+    tables_to_export = [
+        "settings", "study_schedules", "study_sessions", "wasted_time_logs",
+        "daily_dsa_assignments", "daily_english_logs", "handouts", "doubts",
+        "rescheduled_history", "quote_favorites"
+    ]
+
+    for t in tables_to_export:
+        try:
+            cursor.execute(f"SELECT * FROM {t}")
+            backup["tables"][t] = [dict(r) for r in cursor.fetchall()]
+        except Exception:
+            backup["tables"][t] = []
+
+    return backup
+
+def restore_database_backup(conn: sqlite3.Connection, backup_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validates backup and restores tables safely."""
+    if not isinstance(backup_data, dict) or "tables" not in backup_data:
+        raise ValueError("Invalid backup format: missing 'tables' payload.")
+
+    cursor = conn.cursor()
+    tables = backup_data["tables"]
+    restored_counts = {}
+
+    for t_name, rows in tables.items():
+        if not rows or not isinstance(rows, list):
+            continue
+        try:
+            # Clear existing data for user logs only
+            if t_name in ("wasted_time_logs", "doubts", "rescheduled_history", "quote_favorites"):
+                cursor.execute(f"DELETE FROM {t_name}")
+            
+            for row in rows:
+                cols = list(row.keys())
+                placeholders = ", ".join(["?"] * len(cols))
+                col_names = ", ".join(cols)
+                cursor.execute(f"INSERT OR REPLACE INTO {t_name} ({col_names}) VALUES ({placeholders})", list(row.values()))
+            
+            restored_counts[t_name] = len(rows)
+        except Exception as e:
+            restored_counts[t_name] = f"Error: {str(e)}"
+
+    conn.commit()
+    return {"status": "restored", "counts": restored_counts}
+
+
+# --- REDO / PRACTICE AGAIN FUNCTIONS ---
+
+def add_redo_task(
+    conn: sqlite3.Connection,
+    topic_title: str,
+    schedule_id: Optional[int] = None,
+    topic_id: Optional[int] = None,
+    subject_id: Optional[int] = None,
+    course_code: Optional[str] = None,
+    course_name: Optional[str] = None,
+    unit_number: Optional[int] = None,
+    unit_title: Optional[str] = None,
+    original_completion_date: Optional[str] = None,
+    due_date: Optional[str] = None,
+    priority: str = "MEDIUM",
+    reason: Optional[str] = None
+) -> int:
+    """Adds a task to the persistent Redo / Practice Again queue without inflating syllabus completion."""
+    cursor = conn.cursor()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # If course_code/name missing, resolve from subject_id or topic_id
+    if (not course_code or not course_name) and subject_id:
+        cursor.execute("SELECT code, name FROM subjects WHERE id = ?", (subject_id,))
+        s_row = cursor.fetchone()
+        if s_row:
+            course_code = course_code or s_row["code"]
+            course_name = course_name or s_row["name"]
+
+    cursor.execute("""
+        INSERT INTO redo_tasks (
+            schedule_id, topic_id, subject_id, topic_title, course_code, course_name,
+            unit_number, unit_title, original_completion_date, added_to_redo_date,
+            due_date, priority, reason, status, redo_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)
+    """, (
+        schedule_id, topic_id, subject_id, topic_title, course_code, course_name,
+        unit_number, unit_title, original_completion_date or today_str, today_str,
+        due_date, priority.upper(), reason
+    ))
+    conn.commit()
+    return cursor.lastrowid
+
+def get_redo_tasks(conn: sqlite3.Connection, status: Optional[str] = None, course_code: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Retrieves redo tasks with optional filtering by status and course."""
+    cursor = conn.cursor()
+    query = """
+        SELECT r.*, s.color as course_color
+        FROM redo_tasks r
+        LEFT JOIN subjects s ON (r.subject_id = s.id OR r.course_code = s.code)
+        WHERE 1=1
+    """
+    params = []
+    if status and status != 'ALL':
+        query += " AND r.status = ?"
+        params.append(status.upper())
+    if course_code and course_code != 'ALL':
+        query += " AND (r.course_code = ? OR s.code = ?)"
+        params.extend([course_code, course_code])
+
+    query += " ORDER BY CASE r.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END, r.created_at DESC"
+    cursor.execute(query, params)
+    return [dict(row) for row in cursor.fetchall()]
+
+def update_redo_task(
+    conn: sqlite3.Connection,
+    redo_id: int,
+    status: Optional[str] = None,
+    due_date: Optional[str] = None,
+    priority: Optional[str] = None,
+    reason: Optional[str] = None
+) -> bool:
+    """Updates redo task metadata, status, or due date."""
+    cursor = conn.cursor()
+    updates = []
+    params = []
+
+    if status:
+        updates.append("status = ?")
+        params.append(status.upper())
+        if status.upper() == 'COMPLETED':
+            updates.append("completed_at = datetime('now')")
+            updates.append("redo_count = redo_count + 1")
+            updates.append("last_practiced_at = datetime('now')")
+    if due_date is not None:
+        updates.append("due_date = ?")
+        params.append(due_date)
+    if priority:
+        updates.append("priority = ?")
+        params.append(priority.upper())
+    if reason is not None:
+        updates.append("reason = ?")
+        params.append(reason)
+
+    if not updates:
+        return False
+
+    params.append(redo_id)
+    cursor.execute(f"UPDATE redo_tasks SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+    return cursor.rowcount > 0
+
+def complete_redo_task(conn: sqlite3.Connection, redo_id: int) -> bool:
+    """Marks a redo task completed, records practice timestamp, and increments redo attempt count."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE redo_tasks
+        SET status = 'COMPLETED',
+            redo_count = redo_count + 1,
+            last_practiced_at = datetime('now'),
+            completed_at = datetime('now')
+        WHERE id = ?
+    """, (redo_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+def delete_redo_task(conn: sqlite3.Connection, redo_id: int) -> bool:
+    """Removes a task from the redo queue."""
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM redo_tasks WHERE id = ?", (redo_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# --- CALENDAR INTEGRATED EVENTS & ACTIONS ---
+
+def get_calendar_events_combined(
+    conn: sqlite3.Connection,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Returns unified, complete calendar events for the specified date range:
+    1. Custom calendar events (calendar_events)
+    2. Scheduled study shifts (study_schedules)
+    3. Daily DSA assignments (daily_dsa_assignments)
+    4. Daily English speaking logs (daily_english_logs)
+    5. Official semester exam milestones
+    """
+    cursor = conn.cursor()
+    events = []
+
+    # 1. Custom calendar events
+    cal_query = "SELECT * FROM calendar_events WHERE 1=1"
+    cal_params = []
+    if start_date:
+        cal_query += " AND event_date >= ?"
+        cal_params.append(start_date)
+    if end_date:
+        cal_query += " AND event_date <= ?"
+        cal_params.append(end_date)
+    cursor.execute(cal_query, cal_params)
+    for r in cursor.fetchall():
+        events.append({
+            "id": f"custom_{r['id']}",
+            "db_id": r["id"],
+            "title": r["title"],
+            "description": r["description"],
+            "date": r["event_date"],
+            "start_time": r["start_time"],
+            "end_time": r["end_time"],
+            "duration": r["duration_minutes"],
+            "type": r["event_type"],
+            "subject_code": r["subject_code"],
+            "color": r["color"] or "#6366f1",
+            "is_completed": bool(r["is_completed"])
+        })
+
+    # 2. Scheduled study shifts (from study_schedules)
+    sched_query = """
+        SELECT sc.*, sub.code as subject_code, sub.name as subject_name, sub.color as subject_color,
+               t.title as topic_name
+        FROM study_schedules sc
+        JOIN subjects sub ON sc.subject_id = sub.id
+        LEFT JOIN topics t ON sc.topic_id = t.id
+        WHERE 1=1
+    """
+    sched_params = []
+    if start_date:
+        sched_query += " AND sc.scheduled_date >= ?"
+        sched_params.append(start_date)
+    if end_date:
+        sched_query += " AND sc.scheduled_date <= ?"
+        sched_params.append(end_date)
+    sched_query += " ORDER BY sc.scheduled_date, sc.shift_number"
+    cursor.execute(sched_query, sched_params)
+
+    for r in cursor.fetchall():
+        is_comp = r["status"] == "COMPLETED"
+        events.append({
+            "id": f"shift_{r['id']}",
+            "schedule_id": r["id"],
+            "title": f"Shift {r['shift_number']}: {r['subject_code']} - {r['task_description'] or r['topic_name']}",
+            "description": r["learning_objectives"] or r["reasoning"],
+            "date": r["scheduled_date"],
+            "start_time": r["planned_start_time"],
+            "duration": r["duration_minutes"],
+            "actual_minutes": r["actual_minutes"],
+            "type": "academic_shift",
+            "shift_number": r["shift_number"],
+            "is_wrapup": bool(r["is_wrapup"]),
+            "subject_code": r["subject_code"],
+            "subject_name": r["subject_name"],
+            "color": r["subject_color"] or "#4f46e5",
+            "status": r["status"],
+            "is_completed": is_comp
+        })
+
+    # 3. Daily DSA assignments
+    dsa_query = """
+        SELECT dsa.*, dq.title as question_title, dq.difficulty, dq.topic as dsa_topic
+        FROM daily_dsa_assignments dsa
+        LEFT JOIN dsa_questions dq ON dsa.question_id = dq.id
+        WHERE 1=1
+    """
+    dsa_params = []
+    if start_date:
+        dsa_query += " AND dsa.assigned_date >= ?"
+        dsa_params.append(start_date)
+    if end_date:
+        dsa_query += " AND dsa.assigned_date <= ?"
+        dsa_params.append(end_date)
+    cursor.execute(dsa_query, dsa_params)
+    for r in cursor.fetchall():
+        events.append({
+            "id": f"dsa_{r['id']}",
+            "title": f"DSA #{r['slot_number']}: {r['question_title'] or r['topic_name'] or 'Algorithm Problem'}",
+            "date": r["assigned_date"],
+            "type": "dsa",
+            "slot_number": r["slot_number"],
+            "difficulty": r["difficulty"] or "Medium",
+            "status": r["status"],
+            "color": "#38bdf8",
+            "is_completed": r["status"] == "Solved"
+        })
+
+    # 4. Daily English practice logs
+    eng_query = """
+        SELECT el.*, et.title as topic_title
+        FROM daily_english_logs el
+        LEFT JOIN english_speaking_topics et ON el.topic_id = et.id
+        WHERE 1=1
+    """
+    eng_params = []
+    if start_date:
+        eng_query += " AND (el.log_date >= ? OR el.assigned_date >= ?)"
+        eng_params.extend([start_date, start_date])
+    if end_date:
+        eng_query += " AND (el.log_date <= ? OR el.assigned_date <= ?)"
+        eng_params.extend([end_date, end_date])
+    cursor.execute(eng_query, eng_params)
+    for r in cursor.fetchall():
+        d_str = r["log_date"] or r["assigned_date"]
+        events.append({
+            "id": f"eng_{r['id']}",
+            "title": f"English Practice: {r['topic_title'] or '30m Speaking Session'}",
+            "date": d_str,
+            "type": "english",
+            "actual_minutes": r["actual_minutes"] or (r["time_spent_seconds"] // 60 if r["time_spent_seconds"] else 0),
+            "status": "COMPLETED" if r["is_completed"] else "PENDING",
+            "color": "#a855f7",
+            "is_completed": bool(r["is_completed"])
+        })
+
+    # 5. Fixed Exam Milestones
+    exam_milestones = [
+        {"date": "2026-11-26", "title": "🎯 EXAM: CSN 3001 Data Structures", "code": "CSN 3001", "color": "#ef4444"},
+        {"date": "2026-11-28", "title": "🎯 EXAM: CSN 3003 Discrete Structures", "code": "CSN 3003", "color": "#ef4444"},
+        {"date": "2026-12-01", "title": "🎯 EXAM: CSN 3004 Object-Oriented Prog", "code": "CSN 3004", "color": "#ef4444"},
+        {"date": "2026-12-04", "title": "🎯 EXAM: CSN 3002 Data Science & ML", "code": "CSN 3002", "color": "#ef4444"}
+    ]
+    for em in exam_milestones:
+        if (not start_date or em["date"] >= start_date) and (not end_date or em["date"] <= end_date):
+            events.append({
+                "id": f"exam_{em['code'].replace(' ', '_')}",
+                "title": em["title"],
+                "date": em["date"],
+                "type": "exam",
+                "subject_code": em["code"],
+                "color": em["color"],
+                "is_completed": False
+            })
+
+    return events
+
+def create_calendar_event(
+    conn: sqlite3.Connection,
+    title: str,
+    event_date: str,
+    description: Optional[str] = None,
+    event_type: str = "study",
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    duration_minutes: int = 60,
+    subject_code: Optional[str] = None,
+    color: Optional[str] = None
+) -> int:
+    """Inserts a new custom event into calendar_events."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO calendar_events (
+            title, description, event_date, start_time, end_time, duration_minutes,
+            event_type, subject_code, color, is_completed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    """, (
+        title, description, event_date, start_time, end_time, duration_minutes,
+        event_type, subject_code, color or "#6366f1"
+    ))
+    conn.commit()
+    return cursor.lastrowid
+
+def update_calendar_event(conn: sqlite3.Connection, event_id: int, **fields) -> bool:
+    """Updates custom calendar event fields."""
+    cursor = conn.cursor()
+    valid_cols = {"title", "description", "event_date", "start_time", "end_time", "duration_minutes", "event_type", "subject_code", "color", "is_completed"}
+    updates = []
+    params = []
+    for k, v in fields.items():
+        if k in valid_cols and v is not None:
+            updates.append(f"{k} = ?")
+            params.append(v)
+    if not updates:
+        return False
+    params.append(event_id)
+    cursor.execute(f"UPDATE calendar_events SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+    return cursor.rowcount > 0
+
+def delete_calendar_event(conn: sqlite3.Connection, event_id: int) -> bool:
+    """Deletes a custom calendar event."""
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# --- USER AUTHENTICATION & PROFILE FUNCTIONS ---
+
+def create_user(
+    conn: sqlite3.Connection,
+    username: str,
+    password_hash: str,
+    email: Optional[str] = None,
+    full_name: str = "Student"
+) -> int:
+    """Creates a user account in the persistent database."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO users (username, email, password_hash, full_name, is_active, theme_preference)
+        VALUES (?, ?, ?, ?, 1, 'dark')
+    """, (username, email, password_hash, full_name))
+    conn.commit()
+    return cursor.lastrowid
+
+def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[Dict[str, Any]]:
+    """Fetches user record by username."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+def get_user_by_id(conn: sqlite3.Connection, user_id: int) -> Optional[Dict[str, Any]]:
+    """Fetches user record by ID."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, username, email, full_name, is_active, theme_preference, created_at FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+def update_user_profile(
+    conn: sqlite3.Connection,
+    user_id: int,
+    full_name: Optional[str] = None,
+    email: Optional[str] = None,
+    theme_preference: Optional[str] = None
+) -> bool:
+    """Updates user profile and theme preference."""
+    cursor = conn.cursor()
+    updates = []
+    params = []
+    if full_name:
+        updates.append("full_name = ?")
+        params.append(full_name)
+    if email:
+        updates.append("email = ?")
+        params.append(email)
+    if theme_preference:
+        updates.append("theme_preference = ?")
+        params.append(theme_preference)
+    if not updates:
+        return False
+    params.append(user_id)
+    cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# --- MISSING COURSE MATERIALS CHECKLIST ---
+
+def get_missing_materials_checklist(conn: sqlite3.Connection) -> Dict[str, Any]:
+    """
+    Inspects all course units in the syllabus and checks which units have uploaded handouts
+    vs which units currently lack student lecture photos or handouts.
+    """
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.id as unit_id, u.unit_number, u.title as unit_title,
+               s.id as subject_id, s.code as course_code, s.name as course_name, s.color as course_color
+        FROM units u
+        JOIN subjects s ON u.subject_id = s.id
+        ORDER BY s.id, u.unit_number
+    """)
+    all_units = cursor.fetchall()
+
+    cursor.execute("SELECT id, filename, original_filename, subject_id, unit_id, file_type, file_size FROM handouts")
+    handouts = cursor.fetchall()
+
+    unit_handout_map = {}
+    course_handout_map = {}
+    for h in handouts:
+        u_id = h["unit_id"]
+        s_id = h["subject_id"]
+        if u_id:
+            unit_handout_map.setdefault(u_id, []).append(dict(h))
+        if s_id:
+            course_handout_map.setdefault(s_id, []).append(dict(h))
+
+    uploaded_list = []
+    missing_list = []
+
+    for u in all_units:
+        u_id = u["unit_id"]
+        attached = unit_handout_map.get(u_id, [])
+        item = {
+            "unit_id": u_id,
+            "unit_number": u["unit_number"],
+            "unit_title": u["unit_title"],
+            "course_code": u["course_code"],
+            "course_name": u["course_name"],
+            "course_color": u["course_color"],
+            "attached_handouts": attached
+        }
+        if attached:
+            uploaded_list.append(item)
+        else:
+            missing_list.append(item)
+
+    courses_map = {}
+    for u in all_units:
+        c_code = u["course_code"]
+        if c_code not in courses_map:
+            courses_map[c_code] = {
+                "course_code": c_code,
+                "course_name": u["course_name"],
+                "course_color": u["course_color"],
+                "total_units": 0,
+                "units": []
+            }
+        attached = unit_handout_map.get(u["unit_id"], [])
+        courses_map[c_code]["total_units"] += 1
+        courses_map[c_code]["units"].append({
+            "unit_id": u["unit_id"],
+            "unit_number": u["unit_number"],
+            "unit_title": u["unit_title"],
+            "has_handout": len(attached) > 0,
+            "materials": attached
+        })
+
+    course_breakdown = list(courses_map.values())
+
+    return {
+        "total_units": len(all_units),
+        "units_with_materials": len(uploaded_list),
+        "units_missing_materials": len(missing_list),
+        "uploaded_materials": uploaded_list,
+        "missing_materials_checklist": missing_list,
+        "course_breakdown": course_breakdown,
+        "checklist": course_breakdown,
+        "total_handout_files": len(handouts)
+    }
+
+
 

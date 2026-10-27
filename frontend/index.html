@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Last Chance — Personal Study Planner</title>
   <meta name="description" content="Last Chance: A personal, adaptive academic study planner with 4-hour daily targets, DSA questions, English practice, and comprehensive syllabus management." />
-  <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/assets/logo_32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/static/assets/logo_64.png" />
+  <link rel="apple-touch-icon" href="/static/assets/logo_badge.png" />
   
   <!-- Vendored Local-First Assets (100% Offline Ready) -->
   <script src="/static/vendor/tailwind.js"></script>
@@ -34,6 +36,50 @@
   </script>
   
   <link rel="stylesheet" href="/static/css/app.css" />
+  <script>
+    // Global fail-safe: Ensure application initialization errors are visibly displayed
+    window.__appRendered = false;
+    window.displayFatalError = function(err) {
+      console.error('[Last Chance Fatal Error]', err);
+      const root = document.getElementById('root');
+      if (root && !window.__appRendered) {
+        root.innerHTML = `
+          <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background-color: #0b0f19; color: #f1f5f9; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px;">
+            <div style="max-width: 600px; width: 100%; background: #131b2e; border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 28px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <span style="font-size: 26px;">⚠️</span>
+                <h2 style="font-size: 18px; font-weight: 700; color: #f87171; margin: 0;">Application Startup Error</h2>
+              </div>
+              <p style="font-size: 13px; color: #94a3b8; line-height: 1.5; margin: 0 0 16px 0;">
+                The Last Chance dashboard could not render because of a runtime exception:
+              </p>
+              <pre style="background: #090d16; border: 1px solid #334155; border-radius: 8px; padding: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; color: #fca5a5; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0 0 20px 0;">${(err && (err.stack || err.message || String(err))) || 'Unknown startup error'}</pre>
+              <div style="display: flex; gap: 10px;">
+                <button onclick="window.location.reload()" style="background: #4f46e5; color: white; border: none; border-radius: 6px; padding: 8px 18px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                  Reload Application
+                </button>
+                <button onclick="localStorage.clear(); window.location.reload();" style="background: #1e293b; color: #cbd5e1; border: 1px solid #475569; border-radius: 6px; padding: 8px 18px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                  Reset Cache & Reload
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    };
+
+    window.addEventListener('error', function(e) {
+      if (!window.__appRendered) {
+        window.displayFatalError(e.error || e.message);
+      }
+    });
+
+    window.addEventListener('unhandledrejection', function(e) {
+      if (!window.__appRendered) {
+        window.displayFatalError(e.reason);
+      }
+    });
+  </script>
   <script src="/static/vendor/react.min.js"></script>
   <script src="/static/vendor/react-dom.min.js"></script>
   <script src="/static/vendor/babel.min.js"></script>
@@ -41,7 +87,16 @@
   <script src="/static/vendor/lucide.min.js"></script>
 </head>
 <body class="min-h-screen">
-  <div id="root"></div>
+  <div id="root">
+    <div id="initial-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #0b0f19; color: #94a3b8; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; gap: 16px;">
+      <img src="/static/assets/logo_badge.png" alt="Last Chance Logo" style="width: 72px; height: 72px; border-radius: 14px; box-shadow: 0 10px 25px -5px rgba(245, 158, 11, 0.25); animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;" />
+      <div style="font-size: 16px; font-weight: 800; color: #f8fafc; letter-spacing: 0.1em; text-transform: uppercase;">LAST CHANCE</div>
+      <div style="font-size: 12px; color: #f59e0b; font-weight: 500; letter-spacing: 0.05em;">SMALL STEPS • BIG RESULTS</div>
+      <style>
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.85; transform: scale(0.97); } }
+      </style>
+    </div>
+  </div>
 
   <!-- API and Application Scripts -->
   <script src="/static/js/api.js"></script>

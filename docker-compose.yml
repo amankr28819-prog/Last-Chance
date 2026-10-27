@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: last_chance_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DATABASE_URL=postgresql://lastchance_user:lastchance_pass@db:5432/lastchance
+      - JWT_SECRET_KEY=dev_jwt_secret_change_in_production
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    container_name: last_chance_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lastchance
+      POSTGRES_USER: lastchance_user
+      POSTGRES_PASSWORD: lastchance_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:

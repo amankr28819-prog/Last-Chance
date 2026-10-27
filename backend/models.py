@@ -202,9 +202,11 @@ class CalendarEventUpdate(BaseModel):
     is_completed: Optional[bool] = None
 
 class WastedTimeLogCreate(BaseModel):
-    log_date: str
+    log_date: Optional[str] = None
+    wasted_date: Optional[str] = None
     minutes: int
     reason: Optional[str] = ""
+    notes: Optional[str] = None
     category: str = "Unproductive Time"
 
 class WastedTimeLogModel(BaseModel):
@@ -313,3 +315,128 @@ class SyllabusExtractionReviewItem(BaseModel):
     detected_duplicates: List[str] = []
     potential_missing_sections: List[str] = []
     source_filename: str
+
+class ShiftCompleteRequest(BaseModel):
+    actual_minutes: Optional[int] = 45
+    notes: Optional[str] = None
+    add_to_redo: bool = False
+    redo_reason: Optional[str] = None
+
+class ShiftPartialRequest(BaseModel):
+    actual_minutes: int
+    notes: Optional[str] = None
+    is_interrupted: bool = False
+
+class ShiftRescheduleRequest(BaseModel):
+    to_date: Optional[str] = None
+    new_date: Optional[str] = None
+    reason: str = "Unfinished task moved"
+
+class RescheduleUndoRequest(BaseModel):
+    history_id: int
+
+class HandoutUpdateModel(BaseModel):
+    original_filename: Optional[str] = None
+    subject_id: Optional[int] = None
+    unit_id: Optional[int] = None
+    topic_id: Optional[int] = None
+    notes: Optional[str] = None
+
+class DoubtCreate(BaseModel):
+    subject_id: Optional[int] = None
+    subject_name: Optional[str] = None
+    doubt_text: str
+    schedule_id: Optional[int] = None
+    topic_id: Optional[int] = None
+
+class DoubtResolve(BaseModel):
+    answer_text: Optional[str] = ""
+    notes: Optional[str] = ""
+
+class QuoteFavoriteRequest(BaseModel):
+    quote_text: Optional[str] = None
+    author: Optional[str] = None
+    is_favorite: Optional[bool] = True
+
+# --- Redo / Practice Again Models ---
+class RedoTaskCreate(BaseModel):
+    topic_id: Optional[int] = None
+    subject_id: Optional[int] = None
+    schedule_id: Optional[int] = None
+    topic_title: Optional[str] = None
+    topic_name: Optional[str] = None
+    course_code: Optional[str] = None
+    course_name: Optional[str] = None
+    unit_number: Optional[int] = None
+    unit_title: Optional[str] = None
+    original_completion_date: Optional[str] = None
+    due_date: Optional[str] = None
+    priority: str = "MEDIUM" # LOW, MEDIUM, HIGH, URGENT
+    reason: Optional[str] = None
+
+class RedoTaskUpdate(BaseModel):
+    status: Optional[str] = None # PENDING, IN_PROGRESS, COMPLETED, POSTPONED
+    due_date: Optional[str] = None
+    priority: Optional[str] = None
+    reason: Optional[str] = None
+
+class RedoTaskModel(BaseModel):
+    id: int
+    schedule_id: Optional[int] = None
+    topic_id: Optional[int] = None
+    subject_id: Optional[int] = None
+    topic_title: str
+    course_code: Optional[str] = None
+    course_name: Optional[str] = None
+    unit_number: Optional[int] = None
+    unit_title: Optional[str] = None
+    original_completion_date: Optional[str] = None
+    added_to_redo_date: str
+    due_date: Optional[str] = None
+    priority: str = "MEDIUM"
+    reason: Optional[str] = None
+    status: str = "PENDING"
+    redo_count: int = 0
+    last_practiced_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+# --- User Authentication & Profile Models ---
+class UserRegisterRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+    full_name: Optional[str] = "Student"
+
+class UserLoginRequest(BaseModel):
+    username: str
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+    full_name: str
+    theme_preference: str = "dark"
+
+class ThemeUpdateRequest(BaseModel):
+    theme: str
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    theme_preference: Optional[str] = None
+
+# --- DSA Enhancement Models ---
+class DSAReplaceRequest(BaseModel):
+    new_question_id: Optional[int] = None
+    target_topic: Optional[str] = None
+
+class DSANotesUpdate(BaseModel):
+    notes: Optional[str] = None
+    user_approach: Optional[str] = None
+    approach_notes: Optional[str] = None
+    mistakes_notes: Optional[str] = None
+    time_spent_minutes: Optional[int] = None
+
+

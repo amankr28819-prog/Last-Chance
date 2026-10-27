@@ -6,13 +6,25 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import (
     get_connection, init_db, get_setting, set_setting, DB_PATH,
     log_wasted_time, get_wasted_time_summary, get_wasted_time_graph_data,
-    get_daily_dsa_topics, update_daily_dsa_topic, get_english_status_today, save_english_practice
+    get_daily_dsa_topics, update_daily_dsa_topic, get_english_status_today, save_english_practice,
+    get_daily_study_plan, complete_study_shift, partially_complete_study_shift,
+    reschedule_study_shift, undo_reschedule_shift, get_rescheduled_tasks, auto_reschedule_overdue_tasks,
+    get_cumulative_study_totals, get_enhanced_wasted_time_summary, delete_wasted_time_log,
+    add_handout, get_handouts, get_handout_by_id, update_handout, delete_handout,
+    get_syllabus_tracker_data, update_topic_status_audit,
+    add_doubt, get_doubts, resolve_doubt,
+    get_stable_quote_of_the_day, toggle_quote_favorite, get_favorite_quotes,
+    global_search, get_weekly_review, export_database_backup, restore_database_backup,
+    add_redo_task, get_redo_tasks, update_redo_task, complete_redo_task, delete_redo_task,
+    get_calendar_events_combined, create_calendar_event, update_calendar_event, delete_calendar_event,
+    create_user, get_user_by_username, get_user_by_id, update_user_profile,
+    get_missing_materials_checklist
 )
 from backend.models import (
     SubjectModel, SubjectUpdateModel, TopicModel, TopicUpdateModel,
@@ -21,10 +33,20 @@ from backend.models import (
     EnglishTopicModel, DailyEnglishLogModel, EnglishLogSaveRequest, QuoteModel,
     CalendarEventModel, CalendarEventCreate, CalendarEventUpdate,
     WastedTimeLogCreate, WastedTimeLogModel, EnglishLogSimpleRequest,
-    DSATopicAssignmentUpdate, TopicStatusUpdateRequest
+    DSATopicAssignmentUpdate, TopicStatusUpdateRequest,
+    ShiftCompleteRequest, ShiftPartialRequest, ShiftRescheduleRequest, RescheduleUndoRequest,
+    HandoutUpdateModel, DoubtCreate, DoubtResolve, QuoteFavoriteRequest,
+    RedoTaskCreate, RedoTaskUpdate, UserRegisterRequest, UserLoginRequest,
+    TokenResponse, UserProfileUpdate, DSAReplaceRequest, DSANotesUpdate,
+    ThemeUpdateRequest
+)
+from backend.auth import (
+    hash_password, verify_password, create_access_token, decode_access_token,
+    get_optional_current_user, get_required_current_user
 )
 from backend.scheduler import StudyScheduler
 from backend.syllabus_parser import SyllabusParser
+from backend.timetable_data import TIMETABLE_DAYS, import_official_timetable
 
 # Ensure DB is initialized
 init_db()
@@ -376,56 +398,131 @@ def get_today_schedule(conn=Depends(get_db)):
     date_info = scheduler.calculate_dates()
     today_str = date_info["today_str"]
 
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT 
-            sc.*,
-            t.title as topic_title, t.estimated_minutes as topic_base_mins, t.mastery_level,
-            u.title as unit_title, u.unit_number,
-            s.name as subject_name, s.code as subject_code, s.color as subject_color,
-            (SELECT GROUP_CONCAT(title, '||') FROM subtopics st WHERE st.topic_id = t.id) as subtopics_joined
-        FROM study_schedules sc
-        JOIN topics t ON sc.topic_id = t.id
-        JOIN units u ON t.unit_id = u.id
-        JOIN subjects s ON sc.subject_id = s.id
-        WHERE sc.scheduled_date = ?
-        ORDER BY sc.status ASC, sc.id ASC
-    """, (today_str,))
-    
-    tasks = []
-    total_scheduled = 0
-    total_completed = 0
-
-    for r in cursor.fetchall():
-        d = dict(r)
-        d["subtopics"] = d["subtopics_joined"].split("||") if d.get("subtopics_joined") else []
-        d.pop("subtopics_joined", None)
-        tasks.append(d)
-        total_scheduled += d["duration_minutes"]
-        if d["status"] == "COMPLETED":
-            total_completed += d["duration_minutes"]
-
-    available_today = scheduler.get_daily_available_minutes(date_info["today"])
-    free_today = max(0, available_today - total_scheduled)
-    completion_rate = round((total_completed / total_scheduled * 100), 1) if total_scheduled > 0 else 0.0
-    college_hours_today = scheduler.get_college_hours_for_date(date_info["today"])
-
+    plan = get_daily_study_plan(conn, today_str)
+    quote = get_stable_quote_of_the_day(conn, today_str)
+    study_totals = get_cumulative_study_totals(conn, today_str)
+    wasted_summary = get_enhanced_wasted_time_summary(conn, today_str)
     feasibility = scheduler.assess_feasibility()
+    college_hours_today = scheduler.get_college_hours_for_date(date_info["today"])
 
     return {
         "date_info": date_info,
-        "available_minutes": available_today,
-        "academic_target_minutes": int(get_setting(conn, "daily_academic_target_minutes", 240)),
-        "academic_completed_minutes": total_completed,
-        "scheduled_minutes": total_scheduled,
-        "remaining_free_minutes": free_today,
-        "completion_rate": completion_rate,
         "college_hours": college_hours_today,
+        "plan": plan,
+        "shifts": plan["shifts"],
+        "wrapup": plan["wrapup"],
+        "tasks": plan["shifts"], # Backwards compatibility
+        "academic_target_minutes": plan["academic_target_minutes"],
+        "academic_completed_minutes": plan["academic_completed_minutes"],
+        "academic_planned_minutes": plan["academic_planned_minutes"],
+        "academic_remaining_minutes": plan["academic_remaining_minutes"],
+        "academic_progress_pct": plan["academic_progress_pct"],
+        "completion_rate": plan["academic_progress_pct"],
+        "extra_academic_minutes": plan["extra_academic_minutes"],
+        "shifts_total": plan["shifts_total"],
+        "shifts_completed": plan["shifts_completed"],
+        "wrapup_completed": plan["wrapup_completed"],
+        "is_overloaded": plan["is_overloaded"],
+        "today_quote": quote,
+        "quote": quote,
+        "study_totals": study_totals,
+        "wasted_summary": wasted_summary,
         "english_target_minutes": int(get_setting(conn, "english_speaking_target_minutes", 30)),
         "dsa_target_count": int(get_setting(conn, "daily_dsa_count", 2)),
-        "tasks": tasks,
         "feasibility": feasibility
     }
+
+@app.get("/api/schedule/day")
+def get_schedule_day(date: Optional[str] = None, date_str: Optional[str] = None, conn=Depends(get_db)):
+    """Returns the full 5-shift + wrapup plan for any specific date."""
+    target_date = date or date_str
+    if not target_date:
+        scheduler = StudyScheduler(conn)
+        target_date = scheduler.calculate_dates()["today_str"]
+    return get_daily_study_plan(conn, target_date)
+
+@app.post("/api/schedule/{schedule_id}/complete_shift")
+def complete_shift_endpoint(schedule_id: int, req: Optional[ShiftCompleteRequest] = None, conn=Depends(get_db)):
+    actual_mins = req.actual_minutes if req and req.actual_minutes is not None else 45
+    notes = req.notes if req else None
+    result = complete_study_shift(conn, schedule_id, actual_mins, notes)
+    
+    # Check if user requested to add this task to the Redo / Practice Again queue
+    if req and req.add_to_redo:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sc.topic_id, sc.subject_id, sc.task_description, sc.scheduled_date,
+                   sub.code as course_code, sub.name as course_name
+            FROM study_schedules sc
+            LEFT JOIN subjects sub ON sc.subject_id = sub.id
+            WHERE sc.id = ?
+        """, (schedule_id,))
+        sch = cursor.fetchone()
+        if sch:
+            redo_id = add_redo_task(
+                conn,
+                topic_title=sch["task_description"] or "Study Shift",
+                schedule_id=schedule_id,
+                topic_id=sch["topic_id"],
+                subject_id=sch["subject_id"],
+                course_code=sch["course_code"],
+                course_name=sch["course_name"],
+                original_completion_date=sch["scheduled_date"],
+                reason=req.redo_reason or "Added to Redo upon completion"
+            )
+            result["added_to_redo"] = True
+            result["redo_task_id"] = redo_id
+
+    return result
+
+@app.post("/api/schedule/{schedule_id}/partial")
+def partial_shift_endpoint(schedule_id: int, req: ShiftPartialRequest, conn=Depends(get_db)):
+    return partially_complete_study_shift(conn, schedule_id, req.actual_minutes, req.notes, req.is_interrupted)
+
+@app.post("/api/schedule/{schedule_id}/reschedule")
+def reschedule_shift_endpoint(schedule_id: int, req: ShiftRescheduleRequest, conn=Depends(get_db)):
+    target_d = req.new_date or req.to_date
+    return reschedule_study_shift(conn, schedule_id, target_d, req.reason)
+
+@app.post("/api/schedule/reschedule-undo")
+def undo_reschedule_endpoint(req: RescheduleUndoRequest, conn=Depends(get_db)):
+    return undo_reschedule_shift(conn, req.history_id)
+
+@app.get("/api/schedule/rescheduled")
+def get_rescheduled_endpoint(conn=Depends(get_db)):
+    return {"rescheduled_tasks": get_rescheduled_tasks(conn)}
+
+@app.post("/api/schedule/auto-reschedule")
+def auto_reschedule_endpoint(as_of_date: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    cur_d = as_of_date or scheduler.calculate_dates()["today_str"]
+    return auto_reschedule_overdue_tasks(conn, cur_d)
+
+@app.get("/api/import/preview")
+def preview_timetable():
+    """Returns a full review of the official 25-day study plan before committing import."""
+    return {
+        "status": "ready",
+        "days_count": len(TIMETABLE_DAYS),
+        "total_days": len(TIMETABLE_DAYS),
+        "total_shifts": len(TIMETABLE_DAYS) * 5,
+        "total_wrapup_sessions": len(TIMETABLE_DAYS),
+        "total_wrapups": len(TIMETABLE_DAYS),
+        "start_date": "2026-10-27",
+        "end_date": "2026-11-20",
+        "days": TIMETABLE_DAYS
+    }
+
+@app.post("/api/import/timetable")
+def commit_official_timetable(force_overwrite: bool = False, conn=Depends(get_db)):
+    """Imports the official Word timetable safely without duplicating tasks."""
+    return import_official_timetable(conn, force_overwrite=force_overwrite)
+
+@app.get("/api/study-time/totals")
+def get_study_time_totals(date_str: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    ref_d = date_str or scheduler.calculate_dates()["today_str"]
+    return get_cumulative_study_totals(conn, ref_d)
 
 @app.get("/api/schedule")
 def get_schedules_range(start_date: Optional[str] = None, end_date: Optional[str] = None, conn=Depends(get_db)):
@@ -524,19 +621,31 @@ def update_topic_status(topic_id: int, req: TopicStatusUpdateRequest, conn=Depen
 def get_wasted_time_report(date_str: Optional[str] = None, conn=Depends(get_db)):
     scheduler = StudyScheduler(conn)
     target_date = date_str or scheduler.calculate_dates()["today_str"]
-    return get_wasted_time_summary(conn, target_date)
+    return get_enhanced_wasted_time_summary(conn, target_date)
 
 @app.post("/api/wasted-time/log")
 def log_wasted_time_entry(req: WastedTimeLogCreate, conn=Depends(get_db)):
-    new_id = log_wasted_time(conn, req.log_date, req.minutes, req.reason or "", req.category)
-    return {"success": True, "id": new_id, "summary": get_wasted_time_summary(conn, req.log_date)}
+    t_date = req.log_date or req.wasted_date
+    if not t_date:
+        scheduler = StudyScheduler(conn)
+        t_date = scheduler.calculate_dates()["today_str"]
+    r_text = req.notes or req.reason or ""
+    new_id = log_wasted_time(conn, t_date, req.minutes, r_text, req.category)
+    return {"success": True, "id": new_id, "summary": get_enhanced_wasted_time_summary(conn, t_date)}
+
+@app.delete("/api/wasted-time/log/{log_id}")
+def delete_wasted_time_entry(log_id: int, date_str: Optional[str] = None, conn=Depends(get_db)):
+    success = delete_wasted_time_log(conn, log_id)
+    scheduler = StudyScheduler(conn)
+    ref_d = date_str or scheduler.calculate_dates()["today_str"]
+    return {"success": success, "summary": get_enhanced_wasted_time_summary(conn, ref_d)}
 
 @app.get("/api/wasted-time/graph")
 def get_wasted_time_graph(start_date: Optional[str] = None, end_date: Optional[str] = None, conn=Depends(get_db)):
     scheduler = StudyScheduler(conn)
     date_info = scheduler.calculate_dates()
     s_date = start_date or (date_info["today"] - timedelta(days=7)).strftime("%Y-%m-%d")
-    e_date = end_date or "2026-12-04"
+    e_date = end_date or "2026-11-20"
     data = get_wasted_time_graph_data(conn, s_date, e_date)
     return {"data": data}
 
@@ -696,25 +805,165 @@ def finish_session(req: FinishSessionRequest, conn=Depends(get_db)):
 def get_analytics(conn=Depends(get_db)):
     scheduler = StudyScheduler(conn)
     feasibility = scheduler.assess_feasibility()
-    
+    date_info = scheduler.calculate_dates()
+    today = date_info["today"]
     cursor = conn.cursor()
-    # Subject breakdown
+
+    # Graph A & B: Daily study time and target completion
+    cursor.execute("""
+        SELECT 
+            scheduled_date as dt,
+            COALESCE(SUM(actual_minutes), 0) as actual_mins,
+            COALESCE(SUM(duration_minutes), 0) as planned_mins,
+            COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_shifts_count,
+            COUNT(CASE WHEN status != 'COMPLETED' THEN 1 END) as unfinished_shifts_count
+        FROM study_schedules
+        WHERE is_wrapup = 0
+        GROUP BY scheduled_date
+        ORDER BY scheduled_date ASC
+    """)
+    sched_by_date = {r["dt"]: dict(r) for r in cursor.fetchall()}
+
+    # Confirmed wasted logs by date
+    cursor.execute("SELECT log_date, SUM(minutes) as total FROM wasted_time_logs GROUP BY log_date")
+    wasted_by_date = {r["log_date"]: r["total"] for r in cursor.fetchall()}
+
+    graph_a_daily_study = []
+    graph_b_daily_progress = []
+    graph_c_wasted_time = []
+
+    # Span from 2026-10-27 through 2026-11-20 (or dates with schedules)
+    start_dt = date(2026, 10, 27)
+    end_dt = max(today + timedelta(days=7), date(2026, 11, 20))
+    cur = start_dt
+
+    active_days_count = 0
+    full_target_days_count = 0
+
+    while cur <= end_dt:
+        cur_str = cur.strftime("%Y-%m-%d")
+        s_data = sched_by_date.get(cur_str, {"actual_mins": 0, "planned_mins": 240, "completed_shifts_count": 0, "unfinished_shifts_count": 5})
+        act = s_data["actual_mins"]
+        pln = s_data["planned_mins"] or 240
+        wasted_val = wasted_by_date.get(cur_str, 0)
+        shortfall_val = max(0, 240 - act) if cur <= today else 0
+
+        h = act // 60
+        m = act % 60
+        act_formatted = f"{h}h {m}m" if h > 0 else f"{m}m"
+
+        pct = min(100.0, round((act / 240.0) * 100, 1))
+        extra_m = max(0, act - 240)
+
+        if act > 0:
+            active_days_count += 1
+        if act >= 240:
+            full_target_days_count += 1
+
+        graph_a_daily_study.append({
+            "date": cur_str,
+            "day_label": cur.strftime("%d %b"),
+            "actual_minutes": act,
+            "planned_minutes": pln,
+            "target_minutes": 240,
+            "actual_formatted": act_formatted
+        })
+
+        graph_b_daily_progress.append({
+            "date": cur_str,
+            "day_label": cur.strftime("%d %b"),
+            "progress_percent": pct,
+            "extra_minutes": extra_m
+        })
+
+        graph_c_wasted_time.append({
+            "date": cur_str,
+            "day_label": cur.strftime("%d %b"),
+            "confirmed_wasted_minutes": wasted_val,
+            "academic_shortfall_minutes": shortfall_val
+        })
+
+        cur += timedelta(days=1)
+
+    # Graph D: Weekly study summary (Monday-Sunday weeks)
+    graph_d_weekly = []
+    w_cur = date(2026, 10, 26) # Monday
+    while w_cur <= end_dt:
+        w_end = w_cur + timedelta(days=6)
+        ws_str = w_cur.strftime("%Y-%m-%d")
+        we_str = w_end.strftime("%Y-%m-%d")
+
+        cursor.execute("""
+            SELECT 
+                COALESCE(SUM(actual_minutes), 0) as act_sum,
+                COALESCE(SUM(duration_minutes), 0) as pln_sum,
+                COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as comp_cnt,
+                COUNT(CASE WHEN status != 'COMPLETED' THEN 1 END) as unfin_cnt
+            FROM study_schedules
+            WHERE scheduled_date BETWEEN ? AND ? AND is_wrapup = 0
+        """, (ws_str, we_str))
+        w_row = cursor.fetchone()
+
+        cursor.execute("SELECT COALESCE(SUM(minutes), 0) FROM wasted_time_logs WHERE log_date BETWEEN ? AND ?", (ws_str, we_str))
+        w_wasted = cursor.fetchone()[0]
+
+        w_act = w_row["act_sum"]
+        w_pln = w_row["pln_sum"] or (240 * 7)
+        achievement = round((w_act / w_pln * 100), 1) if w_pln > 0 else 0.0
+
+        graph_d_weekly.append({
+            "week_label": f"{w_cur.strftime('%d %b')} – {w_end.strftime('%d %b')}",
+            "start_date": ws_str,
+            "end_date": we_str,
+            "total_academic_hours": round(w_act / 60, 1),
+            "total_academic_minutes": w_act,
+            "total_planned_hours": round(w_pln / 60, 1),
+            "completed_shifts": w_row["comp_cnt"],
+            "unfinished_shifts": w_row["unfin_cnt"],
+            "daily_average_minutes": round(w_act / 7, 1),
+            "target_achievement_percent": achievement,
+            "confirmed_wasted_minutes": w_wasted
+        })
+        w_cur += timedelta(days=7)
+
+    # Graph E: Course-wise progress
     cursor.execute("""
         SELECT 
             s.id, s.name, s.code, s.color,
-            COUNT(t.id) as total_topics,
-            SUM(CASE WHEN t.mastery_level IN ('CONFIDENT', 'MASTERED') THEN 1 ELSE 0 END) as mastered_topics,
-            SUM(t.estimated_minutes) as total_estimated_mins,
-            COALESCE((
-                SELECT SUM(sc.actual_minutes) FROM study_schedules sc WHERE sc.subject_id = s.id AND sc.status = 'COMPLETED'
-            ), 0) as total_actual_mins
+            COUNT(DISTINCT t.id) as total_topics,
+            COUNT(DISTINCT CASE WHEN t.mastery_level IN ('CONFIDENT', 'MASTERED', 'COMPLETED') THEN t.id END) as mastered_topics,
+            COALESCE(SUM(sc.actual_minutes), 0) as total_actual_mins
         FROM subjects s
         LEFT JOIN topics t ON s.id = t.subject_id
+        LEFT JOIN study_schedules sc ON sc.subject_id = s.id AND sc.is_wrapup = 0
         GROUP BY s.id
+        ORDER BY s.id ASC
     """)
-    subjects_stats = [dict(r) for r in cursor.fetchall()]
+    course_progress = []
+    for r in cursor.fetchall():
+        t_tot = r["total_topics"]
+        t_mast = r["mastered_topics"]
+        pct = round((t_mast / t_tot * 100), 1) if t_tot > 0 else 0.0
+        course_progress.append({
+            "id": r["id"],
+            "code": r["code"],
+            "name": r["name"],
+            "color": r["color"],
+            "total_topics": t_tot,
+            "mastered_topics": t_mast,
+            "progress_percent": pct,
+            "total_actual_hours": round(r["total_actual_mins"] / 60, 1),
+            "total_actual_minutes": r["total_actual_mins"]
+        })
 
-    # Daily study history for consistency
+    # Consistency & Streak
+    consistency_data = {
+        "active_study_days": active_days_count,
+        "target_achieved_days": full_target_days_count,
+        "total_tracked_days": len(graph_a_daily_study)
+    }
+
+    # Backward compatibility
     cursor.execute("""
         SELECT scheduled_date, 
             SUM(actual_minutes) as total_actual_minutes,
@@ -728,16 +977,16 @@ def get_analytics(conn=Depends(get_db)):
     """)
     daily_history = [dict(r) for r in cursor.fetchall()]
 
-    # Revision coverage
-    cursor.execute("SELECT COUNT(*) FROM revision_items WHERE status = 'COMPLETED'")
-    revisions_done = cursor.fetchone()[0]
-
     return {
         "feasibility": feasibility,
-        "subjects_stats": subjects_stats,
-        "daily_history": daily_history,
-        "revisions_completed": revisions_done,
-        "predicted_completion_date": feasibility["first_pass_deadline"] if feasibility["is_feasible"] else "At Risk"
+        "graph_a_daily_study": graph_a_daily_study,
+        "graph_b_daily_progress": graph_b_daily_progress,
+        "graph_c_wasted_time": graph_c_wasted_time,
+        "graph_d_weekly_summary": graph_d_weekly,
+        "graph_e_course_progress": course_progress,
+        "graph_f_consistency": consistency_data,
+        "subjects_stats": course_progress,
+        "daily_history": daily_history
     }
 
 @app.get("/api/history")
@@ -875,7 +1124,7 @@ def get_daily_dsa(conn=Depends(get_db)):
 
     # Check existing assignments for today
     cursor.execute("""
-        SELECT a.*, q.title, q.topic, q.difficulty, q.problem_statement, q.concept,
+        SELECT a.*, q.title as question_title, q.title, q.topic as syllabus_topic, q.topic, q.difficulty, q.problem_statement, q.concept,
                q.hint_1, q.hint_2, q.solution_approach, q.solution_code,
                q.time_complexity, q.space_complexity
         FROM daily_dsa_assignments a
@@ -1113,7 +1362,7 @@ def get_today_quote(conn=Depends(get_db)):
     }
 
 @app.post("/api/quotes/{quote_id}/favorite")
-def toggle_quote_favorite(quote_id: int, conn=Depends(get_db)):
+def toggle_quote_favorite_by_id(quote_id: int, conn=Depends(get_db)):
     cursor = conn.cursor()
     cursor.execute("UPDATE daily_quotes SET is_favorite = 1 - is_favorite WHERE id = ?", (quote_id,))
     conn.commit()
@@ -1372,7 +1621,8 @@ def get_calendar_events(start: Optional[str] = None, end: Optional[str] = None, 
         WHERE event_date >= ? AND event_date <= ?
         ORDER BY event_date ASC, start_time ASC
     """, (start_str, end_str))
-    for ce in cursor.fetchall():
+    for row in cursor.fetchall():
+        ce = dict(row)
         events.append({
             "id": f"custom_{ce['id']}",
             "source_id": ce["id"],
@@ -1426,7 +1676,7 @@ def create_calendar_event(event: CalendarEventCreate, conn=Depends(get_db)):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (event.title, event.description, event.event_date, event.start_time, event.end_time, event.event_type, event.subject_code, event.color, int(event.is_completed)))
     conn.commit()
-    return {"success": True, "id": cursor.lastrowid}
+    return {"success": True, "id": cursor.lastrowid, "title": event.title, "event_date": event.event_date}
 
 @app.put("/api/calendar/events/{event_id}")
 def update_calendar_event(event_id: int, event: CalendarEventUpdate, conn=Depends(get_db)):
@@ -1453,14 +1703,170 @@ def update_calendar_event(event_id: int, event: CalendarEventUpdate, conn=Depend
         WHERE id = ?
     """, (title, description, event_date, start_time, end_time, event_type, subject_code, color, is_completed, event_id))
     conn.commit()
-    return {"success": True}
+    return {"success": True, "id": event_id, "title": title}
 
 @app.delete("/api/calendar/events/{event_id}")
 def delete_calendar_event(event_id: int, conn=Depends(get_db)):
     cursor = conn.cursor()
     cursor.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
     conn.commit()
+    return {"success": True, "deleted": True}
+
+# ----------------- LIVE UNIT & SYLLABUS TRACKER -----------------
+@app.get("/api/syllabus/tracker")
+def get_syllabus_tracker_endpoint(conn=Depends(get_db)):
+    """Returns comprehensive course-unit-topic progress with verified topic completion percentages."""
+    return get_syllabus_tracker_data(conn)
+
+@app.put("/api/topics/{topic_id}/status-enhanced")
+def update_topic_status_enhanced(topic_id: int, mastery_level: Optional[str] = None, difficulty_level: Optional[str] = None, needs_revision: Optional[int] = None, conn=Depends(get_db)):
+    return update_topic_status_audit(conn, topic_id, mastery_level, difficulty_level, needs_revision)
+
+# ----------------- HANDOUTS & SYLLABUS FILES -----------------
+@app.get("/api/handouts")
+def list_handouts_endpoint(subject_id: Optional[int] = None, course_id: Optional[int] = None, unit_id: Optional[int] = None, search: Optional[str] = None, conn=Depends(get_db)):
+    actual_subj_id = subject_id or course_id
+    items = get_handouts(conn, actual_subj_id, unit_id, search)
+    return {"handouts": items, "items": items}
+
+@app.post("/api/handouts")
+@app.post("/api/handouts/upload")
+async def upload_handout_endpoint(
+    file: UploadFile = File(...),
+    subject_id: Optional[int] = Form(None),
+    course_id: Optional[int] = Form(None),
+    unit_id: Optional[int] = Form(None),
+    unit_number: Optional[int] = Form(None),
+    topic_id: Optional[int] = Form(None),
+    title: Optional[str] = Form(None),
+    topic_name: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    conn=Depends(get_db)
+):
+    actual_subj_id = subject_id or course_id or 1
+    actual_unit_id = unit_id or unit_number
+    original_name = file.filename or "uploaded_file"
+    ext = os.path.splitext(original_name)[1].lower()
+    allowed_exts = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".txt", ".md"}
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail=f"Unsupported file format '{ext}'. Allowed: PDF, PPT, PPTX, DOC, DOCX, TXT, MD.")
+
+    import uuid
+    import re
+    safe_name = f"{uuid.uuid4().hex[:10]}_{re.sub(r'[^a-zA-Z0-9_.-]', '_', original_name)}"
+    dest_path = os.path.join(UPLOADS_DIR, safe_name)
+
+    content = await file.read()
+    file_size = len(content)
+    if file_size > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum 50MB limit.")
+
+    with open(dest_path, "wb") as f:
+        f.write(content)
+
+    doc_title = title or original_name
+    h_notes = f"Topic: {topic_name}. {notes or ''}" if topic_name else notes
+    h_id = add_handout(conn, safe_name, doc_title, ext.replace(".", "").upper(), file_size, actual_subj_id, actual_unit_id, topic_id, dest_path, h_notes)
+    handout_obj = get_handout_by_id(conn, h_id)
+    return {"success": True, "id": h_id, "data": handout_obj, "handout": handout_obj}
+
+@app.get("/api/handouts/{handout_id}/download")
+def download_handout_endpoint(handout_id: int, conn=Depends(get_db)):
+    handout = get_handout_by_id(conn, handout_id)
+    if not handout or not os.path.exists(handout["file_path"]):
+        raise HTTPException(status_code=404, detail="Handout file not found on disk.")
+    return FileResponse(path=handout["file_path"], filename=handout["original_filename"], media_type="application/octet-stream")
+
+@app.get("/api/handouts/{handout_id}/preview")
+def preview_handout_endpoint(handout_id: int, conn=Depends(get_db)):
+    handout = get_handout_by_id(conn, handout_id)
+    if not handout or not os.path.exists(handout["file_path"]):
+        raise HTTPException(status_code=404, detail="Handout not found.")
+
+    f_type = handout["file_type"].lower()
+    if f_type in ("txt", "md"):
+        with open(handout["file_path"], "r", encoding="utf-8", errors="ignore") as f:
+            return Response(content=f.read(50000), media_type="text/plain; charset=utf-8")
+    elif f_type == "pdf":
+        return FileResponse(path=handout["file_path"], media_type="application/pdf")
+    else:
+        return {"type": "unsupported", "message": f"In-browser preview not available for {f_type.upper()}. Please use download to open in your system viewer.", "filename": handout["original_filename"]}
+
+@app.put("/api/handouts/{handout_id}")
+def update_handout_endpoint(handout_id: int, req: HandoutUpdateModel, conn=Depends(get_db)):
+    success = update_handout(conn, handout_id, req.original_filename, req.subject_id, req.unit_id, req.topic_id, req.notes)
+    if not success:
+        raise HTTPException(status_code=404, detail="Handout not found.")
+    return {"success": True, "handout": get_handout_by_id(conn, handout_id)}
+
+@app.delete("/api/handouts/{handout_id}")
+def delete_handout_endpoint(handout_id: int, conn=Depends(get_db)):
+    file_path = delete_handout(conn, handout_id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="Handout not found.")
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
     return {"success": True}
+
+# ----------------- DOUBTS & NOTES ATTACHMENT -----------------
+@app.get("/api/doubts")
+def list_doubts(status: Optional[str] = None, subject_id: Optional[int] = None, conn=Depends(get_db)):
+    return {"doubts": get_doubts(conn, status, subject_id)}
+
+@app.post("/api/doubts")
+def create_doubt(req: DoubtCreate, conn=Depends(get_db)):
+    subj_id = req.subject_id
+    if subj_id is None and req.subject_name:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM subjects WHERE name LIKE ? OR code LIKE ? LIMIT 1", (f"%{req.subject_name}%", f"%{req.subject_name}%"))
+        r = cur.fetchone()
+        subj_id = r["id"] if r else 1
+    elif subj_id is None:
+        subj_id = 1
+    d_id = add_doubt(conn, subj_id, req.doubt_text, req.schedule_id, req.topic_id)
+    return {"success": True, "id": d_id, "doubt_id": d_id}
+
+@app.put("/api/doubts/{doubt_id}/resolve")
+def resolve_doubt_endpoint(doubt_id: int, req: DoubtResolve, conn=Depends(get_db)):
+    ans_text = req.answer_text or req.notes or "Resolved in study session"
+    success = resolve_doubt(conn, doubt_id, ans_text)
+    return {"success": success}
+
+# ----------------- QUOTE OF THE DAY & FAVORITES -----------------
+@app.get("/api/quotes/today")
+@app.get("/api/quote/today")
+def get_quote_today(date_str: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    today_s = date_str or scheduler.calculate_dates()["today_str"]
+    q = get_stable_quote_of_the_day(conn, today_s)
+    return {"success": True, "quote": q}
+
+@app.get("/api/quotes/favorites")
+def list_favorite_quotes(conn=Depends(get_db)):
+    return {"favorites": get_favorite_quotes(conn)}
+
+@app.post("/api/quotes/favorites")
+def save_favorite_quote(req: QuoteFavoriteRequest, conn=Depends(get_db)):
+    q_text = req.quote_text or ""
+    author = req.author or "Unknown"
+    is_fav = toggle_quote_favorite(conn, q_text, author, req.is_favorite)
+    return {"success": True, "is_favorite": is_fav}
+
+# ----------------- WEEKLY REVIEW & GLOBAL SEARCH -----------------
+@app.get("/api/weekly-review")
+def weekly_review_endpoint(date_str: Optional[str] = None, conn=Depends(get_db)):
+    scheduler = StudyScheduler(conn)
+    ref_d = date_str or scheduler.calculate_dates()["today_str"]
+    return get_weekly_review(conn, ref_d)
+
+@app.get("/api/search")
+def search_endpoint(q: str, conn=Depends(get_db)):
+    if not q or len(q.strip()) < 2:
+        return {"query": q, "subjects": [], "topics": [], "handouts": [], "tasks": []}
+    return global_search(conn, q.strip())
 
 # ----------------- BACKUP & RESTORE -----------------
 
@@ -1578,6 +1984,180 @@ def restore_backup(data: Dict[str, Any], conn=Depends(get_db)):
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to restore backup: {str(e)}")
+
+# ----------------- CALENDAR INTEGRATED EVENTS & ACTIONS -----------------
+
+@app.get("/api/calendar/events")
+def get_calendar_events_endpoint(start: Optional[str] = None, end: Optional[str] = None, conn=Depends(get_db)):
+    """Returns combined scheduled study shifts, DSA assignments, English logs, exams, and custom calendar events."""
+    events = get_calendar_events_combined(conn, start, end)
+    return {"events": events, "count": len(events)}
+
+# ----------------- REDO / PRACTICE AGAIN WORKFLOW -----------------
+
+@app.get("/api/redo")
+def get_redo_queue_endpoint(status: Optional[str] = None, course_code: Optional[str] = None, conn=Depends(get_db)):
+    """Returns persistent tasks in the Redo / Practice Again queue."""
+    tasks = get_redo_tasks(conn, status, course_code)
+    pending_count = len([t for t in tasks if t["status"] == "PENDING"])
+    return {"tasks": tasks, "redo_tasks": tasks, "total": len(tasks), "pending_count": pending_count}
+
+@app.post("/api/redo")
+def add_redo_task_endpoint(req: RedoTaskCreate, conn=Depends(get_db)):
+    t_title = req.topic_title or req.topic_name or "Revision Task"
+    task_id = add_redo_task(
+        conn,
+        topic_title=t_title,
+        schedule_id=req.schedule_id,
+        topic_id=req.topic_id,
+        subject_id=req.subject_id,
+        course_code=req.course_code,
+        course_name=req.course_name,
+        unit_number=req.unit_number,
+        unit_title=req.unit_title,
+        original_completion_date=req.original_completion_date,
+        due_date=req.due_date,
+        priority=req.priority,
+        reason=req.reason
+    )
+    return {"success": True, "id": task_id, "topic_name": t_title, "topic_title": t_title, "status": "PENDING"}
+
+@app.put("/api/redo/{redo_id}")
+def update_redo_task_endpoint(redo_id: int, req: RedoTaskUpdate, conn=Depends(get_db)):
+    success = update_redo_task(conn, redo_id, status=req.status, due_date=req.due_date, priority=req.priority, reason=req.reason)
+    return {"success": success}
+
+@app.post("/api/redo/{redo_id}/complete")
+def complete_redo_task_endpoint(redo_id: int, conn=Depends(get_db)):
+    success = complete_redo_task(conn, redo_id)
+    return {"success": success, "status": "COMPLETED"}
+
+@app.delete("/api/redo/{redo_id}")
+def delete_redo_task_endpoint(redo_id: int, conn=Depends(get_db)):
+    success = delete_redo_task(conn, redo_id)
+    return {"success": success, "deleted": success}
+
+# ----------------- USER AUTHENTICATION & CROSS-DEVICE PROFILE -----------------
+
+@app.post("/api/auth/register")
+def register_user_endpoint(req: UserRegisterRequest, conn=Depends(get_db)):
+    existing = get_user_by_username(conn, req.username)
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists.")
+    pwd_hash = hash_password(req.password)
+    user_id = create_user(conn, req.username, pwd_hash, req.email, req.full_name or "Student")
+    token = create_access_token({"user_id": user_id, "username": req.username})
+    user_obj = {
+        "id": user_id,
+        "username": req.username,
+        "full_name": req.full_name or "Student",
+        "email": req.email,
+        "theme_preference": "dark"
+    }
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "username": req.username,
+        "full_name": req.full_name or "Student",
+        "theme_preference": "dark",
+        "user": user_obj
+    }
+
+@app.post("/api/auth/login")
+def login_user_endpoint(req: UserLoginRequest, conn=Depends(get_db)):
+    user = get_user_by_username(conn, req.username)
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = create_access_token({"user_id": user["id"], "username": user["username"]})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "username": user["username"],
+        "full_name": user["full_name"],
+        "theme_preference": user["theme_preference"] or "dark",
+        "user": user
+    }
+
+@app.get("/api/auth/me")
+def get_current_user_profile_endpoint(user_dict=Depends(get_optional_current_user), conn=Depends(get_db)):
+    if not user_dict:
+        return {"authenticated": False, "username": "Guest Student", "theme_preference": "dark"}
+    user = get_user_by_id(conn, user_dict["user_id"])
+    if not user:
+        return {"authenticated": False, "username": "Guest Student", "theme_preference": "dark"}
+    return {"authenticated": True, "user": user, "username": user["username"], "theme_preference": user.get("theme_preference", "dark")}
+
+@app.put("/api/auth/theme")
+def update_user_theme_endpoint(req: ThemeUpdateRequest, user_dict=Depends(get_optional_current_user), conn=Depends(get_db)):
+    theme_val = req.theme
+    if user_dict and user_dict.get("user_id"):
+        update_user_profile(conn, user_dict["user_id"], theme_preference=theme_val)
+    set_setting(conn, "default_theme", theme_val)
+    return {"success": True, "theme": theme_val, "theme_preference": theme_val}
+
+# ----------------- ENHANCED DSA ROTATION & NOTES -----------------
+
+@app.get("/api/dsa/all-questions")
+def get_all_dsa_questions_endpoint(conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, title as question_title, topic, topic as syllabus_topic, difficulty, concept, description, solution, time_complexity, space_complexity FROM dsa_questions ORDER BY topic, difficulty")
+    questions = [dict(r) for r in cursor.fetchall()]
+    return {"questions": questions, "count": len(questions)}
+
+@app.post("/api/dsa/{assignment_id}/replace")
+def replace_dsa_assignment_endpoint(assignment_id: int, req: Optional[DSAReplaceRequest] = None, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM daily_dsa_assignments WHERE id = ?", (assignment_id,))
+    cur_assign = cursor.fetchone()
+    if not cur_assign:
+        raise HTTPException(status_code=404, detail="Assignment not found.")
+    
+    if req and req.new_question_id:
+        target_qid = req.new_question_id
+    else:
+        cursor.execute("SELECT id, title, topic FROM dsa_questions WHERE id != ? ORDER BY RANDOM() LIMIT 1", (cur_assign["question_id"],))
+        alt = cursor.fetchone()
+        target_qid = alt["id"] if alt else cur_assign["question_id"]
+    
+    cursor.execute("SELECT title, topic FROM dsa_questions WHERE id = ?", (target_qid,))
+    q_info = cursor.fetchone()
+    new_topic_name = f"{q_info['topic']}: {q_info['title']}" if q_info else cur_assign["topic_name"]
+    q_title = q_info["title"] if q_info else cur_assign["topic_name"]
+
+    cursor.execute("UPDATE daily_dsa_assignments SET question_id = ?, topic_name = ?, status = 'Pending' WHERE id = ?", (target_qid, new_topic_name, assignment_id))
+    conn.commit()
+    return {"success": True, "question_id": target_qid, "topic_name": new_topic_name, "question_title": q_title}
+
+@app.put("/api/dsa/{assignment_id}/notes")
+def update_dsa_notes_endpoint(assignment_id: int, req: DSANotesUpdate, conn=Depends(get_db)):
+    cursor = conn.cursor()
+    updates = []
+    params = []
+    note_val = req.notes or req.approach_notes or req.user_approach
+    if note_val is not None:
+        updates.append("approach_notes = ?")
+        params.append(note_val)
+    if req.mistakes_notes is not None:
+        updates.append("mistakes_notes = ?")
+        params.append(req.mistakes_notes)
+    if req.time_spent_minutes is not None:
+        updates.append("time_spent_minutes = ?")
+        params.append(req.time_spent_minutes)
+    if not updates:
+        return {"success": True, "notes": ""}
+    params.append(assignment_id)
+    cursor.execute(f"UPDATE daily_dsa_assignments SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+    return {"success": True, "notes": note_val or ""}
+
+# ----------------- MISSING MATERIALS CHECKLIST -----------------
+
+@app.get("/api/handouts/missing-checklist")
+def get_missing_handouts_checklist_endpoint(conn=Depends(get_db)):
+    """Returns syllabus units with uploaded materials vs units that need lecture notes/photos."""
+    data = get_missing_materials_checklist(conn)
+    data["checklist"] = data.get("course_breakdown", [])
+    return data
 
 # ----------------- STATIC FILES & FRONTEND -----------------
 

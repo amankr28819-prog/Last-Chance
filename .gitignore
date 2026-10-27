@@ -21,9 +21,9 @@ data/*.db-wal
 data/*.db-shm
 data/*.sqlite
 data/*.sqlite3
-*.db
-*.sqlite
-*.sqlite3
+data/*.backup*
+*.backup*
+scratch/
 
 # Uploads and temporary files (keep .gitkeep)
 uploads/*
@@ -32,6 +32,7 @@ uploads/*
 # Environment variables & credentials
 .env
 .env.*
+!.env.example
 *.log
 
 # OS metadata

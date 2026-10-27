@@ -387,3 +387,74 @@ select option {
   color: var(--state-info-text);
   border: 1px solid var(--state-info-border);
 }
+
+/* 3D Depth, Brand Gradients & Tactile Interactive Effects */
+.card-3d {
+  transform: perspective(1000px) translateZ(0);
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease, border-color 0.2s ease;
+}
+
+.card-3d:hover {
+  transform: perspective(1000px) translateY(-3px) translateZ(6px);
+  box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(245, 158, 11, 0.2);
+}
+
+[data-theme="light"] .card-3d:hover {
+  box-shadow: 0 16px 28px -6px rgba(28, 25, 23, 0.12), 0 0 0 1px rgba(245, 158, 11, 0.3);
+}
+
+/* Tactile Button Press */
+.btn-tactile {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
+}
+.btn-tactile:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+/* Sunrise / Mountain Quote Hero Container */
+.quote-hero-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(19, 28, 49, 0.95) 0%, rgba(15, 23, 42, 0.98) 60%, rgba(30, 41, 59, 0.9) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(251, 191, 36, 0.15);
+}
+
+[data-theme="light"] .quote-hero-card {
+  background: linear-gradient(135deg, #FFFFFF 0%, #FFFDF9 60%, #FEF3C7 100%);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 10px 25px -5px rgba(245, 158, 11, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.quote-hero-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b);
+}
+
+/* Redo Badge / Pulse */
+.badge-redo {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+[data-theme="light"] .badge-redo {
+  background: #FEF2F2;
+  color: #DC2626;
+  border-color: #FECACA;
+}
+
+/* Mobile Chart Container Sizing Fix */
+.chart-container-responsive {
+  position: relative;
+  width: 100%;
+  min-height: 260px;
+  max-height: 340px;
+}
+

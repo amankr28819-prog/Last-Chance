@@ -7,10 +7,13 @@ import subprocess
 from typing import Optional, Tuple
 
 def is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
-    """Checks whether a TCP port is currently in use."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.5)
-        return s.connect_ex((host, port)) == 0
+    """Checks whether a TCP port is currently in use or unavailable to bind."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host, port))
+            return False
+    except OSError:
+        return True
 
 def find_process_on_port(port: int) -> Optional[Tuple[int, str, str]]:
     """Identifies the PID and process command line using the given port on Windows."""
