@@ -2,6 +2,7 @@ import sqlite3
 import json
 import os
 import shutil
+import re
 from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any, List
 
@@ -9,7 +10,152 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 DB_PATH = os.path.join(DATA_DIR, "lastchance.db")
 OLD_DB_PATH = os.path.join(DATA_DIR, "studypilot.db")
 
-def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+
+TABLES_WITH_ID = {
+    'users', 'subjects', 'units', 'topics', 'subtopics', 'prerequisites',
+    'study_schedules', 'study_sessions', 'schedule_change_logs', 'revision_items',
+    'dsa_questions', 'daily_dsa_assignments', 'english_speaking_topics',
+    'daily_english_logs', 'daily_quotes', 'calendar_events', 'wasted_time_logs',
+    'handouts', 'doubts', 'rescheduled_history', 'quote_favorites', 'redo_tasks'
+}
+
+def translate_query_for_postgres(query: str) -> tuple[str, bool]:
+    """Translates SQLite query syntax into PostgreSQL compatible query syntax."""
+    # 1. Translate datetime('now') -> CURRENT_TIMESTAMP
+    q = re.sub(r"datetime\('now'\)", "CURRENT_TIMESTAMP", query, flags=re.IGNORECASE)
+
+    # 2. Translate placeholders ? -> %s safely (outside single and double quotes)
+    tokens = []
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(q):
+        c = q[i]
+        if c == "'" and not in_double:
+            in_single = not in_single
+            tokens.append(c)
+        elif c == '"' and not in_single:
+            in_double = not in_double
+            tokens.append(c)
+        elif c == '?' and not in_single and not in_double:
+            tokens.append('%s')
+        else:
+            tokens.append(c)
+        i += 1
+    translated = ''.join(tokens)
+
+    # 3. Check for INSERT needing RETURNING id for lastrowid compatibility
+    has_returning = False
+    stripped = translated.strip().rstrip(';')
+    if re.match(r'^\s*INSERT\s+INTO\s+', stripped, re.IGNORECASE):
+        m = re.match(r'^\s*INSERT\s+INTO\s+([\"`\w]+)', stripped, re.IGNORECASE)
+        if m:
+            tbl = m.group(1).strip('"`').lower()
+            if tbl in TABLES_WITH_ID and 'RETURNING' not in stripped.upper():
+                stripped += ' RETURNING id'
+                has_returning = True
+    return stripped, has_returning
+
+class PostgresCursorWrapper:
+    def __init__(self, real_cursor):
+        self._cursor = real_cursor
+        self.lastrowid = None
+
+    def execute(self, query, params=None):
+        pg_query, has_returning = translate_query_for_postgres(query)
+        if params is not None:
+            if isinstance(params, list):
+                params = tuple(params)
+            self._cursor.execute(pg_query, params)
+        else:
+            self._cursor.execute(pg_query)
+
+        if has_returning:
+            try:
+                res = self._cursor.fetchone()
+                if res is not None:
+                    self.lastrowid = res["id"] if isinstance(res, dict) or hasattr(res, "get") else res[0]
+            except Exception:
+                pass
+        return self
+
+    def executemany(self, query, seq_of_params):
+        pg_query, _ = translate_query_for_postgres(query)
+        self._cursor.executemany(pg_query, seq_of_params)
+        return self
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def fetchmany(self, size=None):
+        return self._cursor.fetchmany(size) if size else self._cursor.fetchmany()
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    def close(self):
+        self._cursor.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+class PostgresConnectionWrapper:
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def cursor(self):
+        import psycopg2.extras
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        return PostgresCursorWrapper(cur)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def execute(self, query, params=None):
+        cur = self.cursor()
+        return cur.execute(query, params)
+
+    def executescript(self, script):
+        with self._conn.cursor() as cur:
+            cur.execute(script)
+        self._conn.commit()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+def is_postgres() -> bool:
+    return bool(os.environ.get("DATABASE_URL", "").strip())
+
+def get_connection(db_path: str = DB_PATH):
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if db_url:
+        import psycopg2
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+        raw_conn = psycopg2.connect(db_url)
+        return PostgresConnectionWrapper(raw_conn)
+
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     
     # Safe migration: if old studypilot.db exists and lastchance.db does not, migrate it
@@ -28,6 +174,18 @@ def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
 def init_db(db_path: str = DB_PATH):
     conn = get_connection(db_path)
     cursor = conn.cursor()
+
+    if is_postgres():
+        schema_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations", "001_supabase_schema.sql")
+        if os.path.exists(schema_path):
+            with open(schema_path, "r", encoding="utf-8") as f:
+                schema_sql = f.read()
+            conn.executescript(schema_sql)
+        seed_initial_data_if_empty(conn)
+        seed_dsa_questions_if_empty(conn)
+        seed_english_topics_if_empty(conn)
+        seed_quotes_if_empty(conn)
+        return
 
     cursor.executescript("""
     CREATE TABLE IF NOT EXISTS subjects (

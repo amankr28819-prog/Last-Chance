@@ -138,35 +138,114 @@ The repository includes a ready-to-deploy `render.yaml` blueprint:
    - **Persistent Disk** (`lastchance-data` mounted at `/var/data` for local uploads/backups).
 4. Fill in `SECRET_KEY` in Render environment settings.
 
-### Option B: Docker Container
-Build and run using Docker:
-```bash
-docker build -t last-chance:latest .
-docker run -p 8000:8000 -v $(pwd)/data:/app/data -v $(pwd)/uploads:/app/uploads last-chance:latest
-```
-Or with docker-compose:
-```bash
-docker-compose up -d
-```
+### Option B: Cloud Architecture (Vercel + Render + Supabase)
 
-### Database Migration: SQLite to PostgreSQL
-To transfer your local study progress to your deployed PostgreSQL database:
-```bash
-export DATABASE_URL="postgresql://user:password@hostname:5432/dbname"
-python scripts/migrate_to_postgres.py --sqlite data/lastchance.db --postgres "$DATABASE_URL"
+Last Chance is engineered to run seamlessly across:
+* **Frontend**: Vercel (Fast, global CDN hosting of the React/Tailwind client)
+* **Backend**: Render Free (FastAPI REST service with dynamic port binding)
+* **Database**: Supabase PostgreSQL (Persistent, managed multi-device database)
+* **Storage**: Supabase Storage (Private bucket for lecture handouts and syllabus files)
+
+---
+
+## ⚡ Supabase Setup & Cloud Migration Guide
+
+### 1. Supabase Dashboard Setup
+1. **Create Project**:
+   - Go to [supabase.com](https://supabase.com) and click **New Project** (e.g. `lastchance-prod`).
+   - Set a strong database password and select your closest AWS region.
+2. **Retrieve PostgreSQL Connection String**:
+   - Go to **Project Settings** → **Database** → **Connection string**.
+   - Copy the **URI** under Session Pooler (or Direct connection):
+     ```
+     postgresql://postgres.[PROJECT_REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
+     ```
+3. **Create Private Storage Bucket**:
+   - Go to **Storage** → **New Bucket**.
+   - Bucket name: `handouts`
+   - Keep **Public bucket** toggled **OFF** (Last Chance uses backend-authenticated streaming to protect private academic notes).
+4. **Retrieve API Keys**:
+   - Go to **Project Settings** → **API**.
+   - Copy the **Project URL** (`https://[PROJECT_REF].supabase.co`).
+   - Copy the **service_role** secret key (for secure backend file operations).
+
+---
+
+### 2. Database Migration (SQLite → Supabase PostgreSQL)
+
+The migration script safely transfers all 23 tables, foreign keys, and serial sequences without modifying your original SQLite database:
+
+**Step A: Dry Run Verification**
+```powershell
+python scripts/migrate_sqlite_to_supabase.py --dry-run
 ```
+*Validates all 1,289+ records, table schemas, and foreign keys without performing any writes.*
+
+**Step B: Live Production Migration**
+```powershell
+python scripts/migrate_sqlite_to_supabase.py --db-url "postgresql://postgres.[PROJECT_REF]:[YOUR_PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres"
+```
+*Applies `backend/migrations/001_supabase_schema.sql`, inserts all records using `ON CONFLICT` resolution (safe to rerun), aligns PostgreSQL serial sequences, and verifies row counts.*
+
+---
+
+### 3. Handout Files Migration (Local uploads/ → Supabase Storage)
+
+**Step A: Dry Run File Inspection**
+```powershell
+python scripts/migrate_handouts_to_supabase.py --dry-run
+```
+*Checks all 6 course handouts and syllabus documents in `uploads/`.*
+
+**Step B: Live Upload to Supabase**
+```powershell
+$env:SUPABASE_URL="https://[PROJECT_REF].supabase.co"
+$env:SUPABASE_KEY="[YOUR_SERVICE_ROLE_KEY]"
+python scripts/migrate_handouts_to_supabase.py
+```
+*Uploads materials to the private `handouts` bucket with mime-types and metadata while keeping local copies in `uploads/` 100% intact.*
+
+---
+
+### 4. Deploy Backend to Render Free
+1. Sign in to [render.com](https://render.com) and click **New** → **Web Service**.
+2. Connect your GitHub repository: `https://github.com/amankr28819-prog/Last-Chance.git`.
+3. Configure the service:
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn backend.app:app --host 0.0.0.0 --port $PORT`
+   - **Health Check Path**: `/api/health`
+4. Add **Environment Variables** under the Environment tab:
+   - `DATABASE_URL`: Your Supabase connection string.
+   - `SUPABASE_URL`: `https://[PROJECT_REF].supabase.co`
+   - `SUPABASE_KEY`: Your Supabase `service_role` key.
+   - `SUPABASE_STORAGE_BUCKET`: `handouts`
+   - `JWT_SECRET_KEY`: A secure 64-character hex key (generate with `python -c "import secrets; print(secrets.token_hex(32))"`).
+   - `CORS_ORIGINS`: Your Vercel frontend URL (e.g. `https://last-chance.vercel.app`).
+
+---
+
+### 5. Deploy Frontend to Vercel
+1. Sign in to [vercel.com](https://vercel.com) and click **Add New** → **Project**.
+2. Import your GitHub repository.
+3. In **Root Directory**, leave as `./` or select `frontend`.
+4. If deploying static files separately or setting custom backend endpoint:
+   - Update `<meta name="api-base-url" content="https://lastchance-backend.onrender.com" />` in `frontend/index.html` or set `window.__LAST_CHANCE_API_BASE__`.
 
 ---
 
 ## 🧪 Automated Testing
 
-Run the full pytest test suite (all 43 tests passing):
+Run the full pytest test suite (44+ tests passing):
 ```powershell
 python -m pytest backend/tests -v -p no:cacheprovider
 ```
 
 The automated test suite verifies:
 * 240-minute daily academic study targets and shift completions.
+* 3-level Handout hierarchy (`/api/handouts/hierarchy`) with course, unit, and topic completion persistence.
+* Dual-mode database compatibility (PostgreSQL adapter and local SQLite fallback).
+* Storage service with private Supabase Storage streaming and local fallback.
 * Redo queue workflows: creation, completion without syllabus inflation, notes, and deletion.
 * Compulsory 2 Daily DSA questions with status updates, syllabus topics, and in-app replacement.
 * English speaking logs, topic rotation, and streak counting.
@@ -180,7 +259,8 @@ The automated test suite verifies:
 
 ## 🔒 Data Security & Backups
 
-* **Local Database**: `data/lastchance.db` (never committed to git).
-* **Backup Export**: Go to Settings → Click **Export JSON Backup** to download your complete study history, custom events, and notes.
-* **Backup Restore**: Upload your JSON backup in Settings to restore all records.
-* **Environment Variables**: Configure secrets safely using `.env` (template in `.env.example`).
+* **Local Database**: `data/lastchance.db` (never committed to git, excluded via `.gitignore`).
+* **Supabase PostgreSQL**: Encrypted at rest, SSL connections enforced, protected behind connection pooling.
+* **Handouts Storage**: Hosted in private Supabase Storage bucket; accessed exclusively via authenticated signed URLs or backend streaming proxy.
+* **Backup Export**: Use `GET /api/database/backup` to download your complete study history, custom events, and notes as a verified JSON bundle.
+* **Environment Variables**: Configure secrets safely using `.env` (template in `.env.example`). Real credentials are never committed.

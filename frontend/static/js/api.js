@@ -1,5 +1,5 @@
 // Last Chance API Client
-const API_BASE = '';
+const API_BASE = window.__LAST_CHANCE_API_BASE__ || window.LAST_CHANCE_API_BASE || '';
 
 function getAuthHeaders() {
   const token = localStorage.getItem('lc_token');

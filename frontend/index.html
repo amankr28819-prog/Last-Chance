@@ -4,7 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Last Chance — Personal Study Planner</title>
-  <meta name="description" content="Last Chance: A personal, adaptive academic study planner with 4-hour daily targets, DSA questions, English practice, and comprehensive syllabus management." />
+  <meta name="api-base-url" content="" />
+  <script>
+    (function() {
+      const meta = document.querySelector('meta[name="api-base-url"]');
+      if (meta && meta.content && meta.content.trim()) {
+        window.__LAST_CHANCE_API_BASE__ = meta.content.trim().replace(/\/$/, '');
+      }
+    })();
+  </script>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/assets/logo_32.png" />
   <link rel="icon" type="image/png" sizes="64x64" href="/static/assets/logo_64.png" />
   <link rel="apple-touch-icon" href="/static/assets/logo_badge.png" />

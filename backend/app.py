@@ -48,6 +48,8 @@ from backend.scheduler import StudyScheduler
 from backend.syllabus_parser import SyllabusParser
 from backend.timetable_data import TIMETABLE_DAYS, import_official_timetable
 
+from backend.storage import storage_service
+
 # Ensure DB is initialized
 init_db()
 
@@ -57,13 +59,25 @@ app = FastAPI(
     version="2.0.0"
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_origins_env = os.environ.get("CORS_ORIGINS", "*").strip()
+if cors_origins_env and cors_origins_env != "*":
+    origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_origin_regex=r"https://.*\.vercel\.app",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
@@ -1141,10 +1155,11 @@ def get_daily_dsa(conn=Depends(get_db)):
         needed = 2 - len(assignments)
         assigned_ids = [a["question_id"] for a in assignments]
         # Avoid questions assigned in the past 7 days if possible
+        seven_days_ago = (datetime.strptime(today_str, "%Y-%m-%d").date() - timedelta(days=7)).strftime("%Y-%m-%d")
         cursor.execute("""
             SELECT question_id FROM daily_dsa_assignments
-            WHERE assigned_date >= date(?, '-7 days')
-        """, (today_str,))
+            WHERE assigned_date >= ?
+        """, (seven_days_ago,))
         recent_ids = {r[0] for r in cursor.fetchall()}
         recent_ids.update(assigned_ids)
 
@@ -1782,24 +1797,49 @@ async def upload_handout_endpoint(
 @app.get("/api/handouts/{handout_id}/download")
 def download_handout_endpoint(handout_id: int, conn=Depends(get_db)):
     handout = get_handout_by_id(conn, handout_id)
-    if not handout or not os.path.exists(handout["file_path"]):
-        raise HTTPException(status_code=404, detail="Handout file not found on disk.")
-    return FileResponse(path=handout["file_path"], filename=handout["original_filename"], media_type="application/octet-stream")
+    if not handout:
+        raise HTTPException(status_code=404, detail="Handout not found.")
+    
+    target_path = handout.get("storage_path") or handout["file_path"]
+    content, media_type = storage_service.get_file_bytes(target_path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Handout file not found in storage.")
+    
+    from fastapi.responses import Response
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{handout["original_filename"]}"'}
+    )
 
 @app.get("/api/handouts/{handout_id}/preview")
 def preview_handout_endpoint(handout_id: int, conn=Depends(get_db)):
     handout = get_handout_by_id(conn, handout_id)
-    if not handout or not os.path.exists(handout["file_path"]):
+    if not handout:
         raise HTTPException(status_code=404, detail="Handout not found.")
+
+    target_path = handout.get("storage_path") or handout["file_path"]
+    content, media_type = storage_service.get_file_bytes(target_path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Handout file not found in storage.")
 
     f_type = handout["file_type"].lower()
     if f_type in ("txt", "md"):
-        with open(handout["file_path"], "r", encoding="utf-8", errors="ignore") as f:
-            return Response(content=f.read(50000), media_type="text/plain; charset=utf-8")
+        return Response(content=content, media_type="text/plain; charset=utf-8")
     elif f_type == "pdf":
-        return FileResponse(path=handout["file_path"], media_type="application/pdf")
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{handout["original_filename"]}"'}
+        )
+    elif f_type in ("png", "jpg", "jpeg", "webp"):
+        return Response(content=content, media_type=media_type)
     else:
-        return {"type": "unsupported", "message": f"In-browser preview not available for {f_type.upper()}. Please use download to open in your system viewer.", "filename": handout["original_filename"]}
+        return {
+            "type": "unsupported",
+            "message": f"In-browser preview not available for {f_type.upper()}. Please use download to open in your system viewer.",
+            "filename": handout["original_filename"]
+        }
 
 @app.put("/api/handouts/{handout_id}")
 def update_handout_endpoint(handout_id: int, req: HandoutUpdateModel, conn=Depends(get_db)):
@@ -1810,14 +1850,11 @@ def update_handout_endpoint(handout_id: int, req: HandoutUpdateModel, conn=Depen
 
 @app.delete("/api/handouts/{handout_id}")
 def delete_handout_endpoint(handout_id: int, conn=Depends(get_db)):
-    file_path = delete_handout(conn, handout_id)
-    if not file_path:
+    handout = get_handout_by_id(conn, handout_id)
+    if not handout:
         raise HTTPException(status_code=404, detail="Handout not found.")
-    if os.path.exists(file_path):
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
+    file_path = delete_handout(conn, handout_id)
+    storage_service.delete_file(handout.get("storage_path") or file_path or handout["filename"])
     return {"success": True}
 
 # ----------------- DOUBTS & NOTES ATTACHMENT -----------------
