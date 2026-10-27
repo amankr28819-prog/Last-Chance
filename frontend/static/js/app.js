@@ -199,18 +199,12 @@ function App() {
   // 12 Navigation Items
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '⚡' },
-    { id: 'timetable', label: 'Study Plan', icon: '📋' },
-    { id: 'calendar', label: 'Study Calendar', icon: '🗓️' },
-    { id: 'courses', label: 'Courses & Syllabus', icon: '📚' },
-    { id: 'handouts', label: 'Handouts & Notes', icon: '📄' },
-    { id: 'analytics', label: 'Study Graphs', icon: '📊' },
-    { id: 'wasted_time', label: 'Wasted Time Tracker', icon: '⏱️' },
-    { id: 'dsa', label: 'Daily DSA (2 Qs)', icon: '💻' },
-    { id: 'redo', label: 'Redo / Practice Again', icon: '🔁' },
+    { id: 'timetable', label: 'Daily Work', icon: '📋' },
+    { id: 'dsa', label: 'Daily DSA', icon: '💻' },
+    { id: 'handouts', label: 'Handouts', icon: '📄' },
+    { id: 'redo', label: 'Redo Queue', icon: '🔁' },
     { id: 'english', label: 'English Speaking', icon: '🗣️' },
-    { id: 'revision', label: 'Revision & Doubts', icon: '🔄' },
-    { id: 'history', label: 'Study History', icon: '📜' },
-    { id: 'settings', label: 'Settings', icon: '⚙️' }
+    { id: 'analytics', label: 'Study Analytics', icon: '📊' }
   ];
 
   const academicDone = todaySchedule?.plan?.academic_completed_minutes || todaySchedule?.academic_completed_minutes || 0;
@@ -243,18 +237,13 @@ function App() {
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 shrink-0 flex flex-col border-r" style={{ backgroundColor: 'var(--bg-sidebar)', borderColor: 'var(--border-color)' }}>
         {/* Branding */}
-        <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
-          <div className="flex items-center space-x-3">
-            <img src="/static/assets/logo_badge.png" alt="Last Chance Logo" className="w-10 h-10 rounded-xl shadow-md border border-amber-500/30 object-cover" />
-            <div>
-              <h1 className="text-base font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
-                Last Chance
-              </h1>
-              <p className="text-[10px] font-bold text-amber-500 tracking-wider uppercase">
-                Small Steps • Big Results
-              </p>
-            </div>
-          </div>
+        <div className="p-4 border-b flex items-center justify-center" style={{ borderColor: 'var(--border-color)' }}>
+          <img
+            src="/static/assets/logo.png"
+            alt="Last Chance — Small Steps Big Results"
+            className="brand-logo-img"
+            style={{ width: '150px', height: 'auto', maxHeight: '54px', objectFit: 'contain' }}
+          />
         </div>
 
         {/* Navigation Links */}
@@ -333,72 +322,9 @@ function App() {
             </div>
           </div>
 
-          {/* Global Search Bar with Live Results Dropdown */}
-          <div className="relative flex-1 max-w-xs hidden sm:block">
-            <input
-              type="text"
-              placeholder="Search topics, courses, notes, handouts..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onFocus={() => { if (searchResults) setSearchDropdownOpen(true); }}
-              className="w-full text-xs py-1.5 px-3 rounded-lg border"
-              style={{ backgroundColor: 'var(--input-bg)', color: 'var(--input-text)', borderColor: 'var(--input-border)' }}
-            />
-            {searchQuery && (
-              <button onClick={() => { setSearchQuery(''); setSearchResults(null); setSearchDropdownOpen(false); }} className="absolute right-2.5 top-2 text-xs text-slate-400 hover:text-slate-200">
-                ✕
-              </button>
-            )}
-
-            {/* Dropdown Results */}
-            {searchDropdownOpen && searchResults && (
-              <div className="absolute left-0 right-0 mt-1.5 p-2 rounded-lg border shadow-xl z-50 text-xs max-h-72 overflow-y-auto space-y-2" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                {searchResults.topics?.length === 0 && searchResults.tasks?.length === 0 && searchResults.handouts?.length === 0 ? (
-                  <p className="p-2 text-center text-slate-400">No matching items found</p>
-                ) : (
-                  <>
-                    {searchResults.topics?.length > 0 && (
-                      <div>
-                        <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">Topics ({searchResults.topics.length})</div>
-                        {searchResults.topics.slice(0, 5).map(t => (
-                          <div key={t.id} onClick={() => { setActiveTab('courses'); setSearchDropdownOpen(false); }} className="p-1.5 rounded hover:bg-slate-700/40 cursor-pointer">
-                            <span className="font-semibold text-slate-200">{t.title}</span>
-                            <span className="block text-[10px] text-slate-400">{t.subject_code} • Unit {t.unit_number}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {searchResults.tasks?.length > 0 && (
-                      <div className="pt-1 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                        <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">Scheduled Tasks ({searchResults.tasks.length})</div>
-                        {searchResults.tasks.slice(0, 4).map(tk => (
-                          <div key={tk.id} onClick={() => { setActiveTab('timetable'); setSearchDropdownOpen(false); }} className="p-1.5 rounded hover:bg-slate-700/40 cursor-pointer">
-                            <span className="font-semibold text-slate-200">{tk.task_description || tk.topic_title}</span>
-                            <span className="block text-[10px] text-slate-400">{tk.scheduled_date} • {tk.subject_code}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {searchResults.handouts?.length > 0 && (
-                      <div className="pt-1 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                        <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-1">Handouts ({searchResults.handouts.length})</div>
-                        {searchResults.handouts.slice(0, 3).map(h => (
-                          <div key={h.id} onClick={() => { setActiveTab('handouts'); setSearchDropdownOpen(false); }} className="p-1.5 rounded hover:bg-slate-700/40 cursor-pointer">
-                            <span className="font-semibold text-slate-200">{h.title}</span>
-                            <span className="block text-[10px] text-slate-400">{h.file_type} • {h.course_name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-center space-x-2.5 ml-auto">
             {/* Quick Metrics */}
-            <div className="hidden lg:flex items-center space-x-2 text-xs">
+            <div className="hidden sm:flex items-center space-x-2 text-xs">
               <div className="px-2.5 py-1 rounded-md border font-medium flex items-center space-x-1.5" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
                 <span>📖 Academic:</span>
                 <strong style={{ color: 'var(--text-primary)' }}>{academicDone}/{academicTarget}m</strong>
@@ -408,28 +334,6 @@ function App() {
                 <strong style={{ color: 'var(--text-primary)' }}>{dsaDone}/2</strong>
               </div>
             </div>
-
-            {/* Favorite Quotes Modal Button */}
-            <button
-              onClick={() => setIsFavoritesModalOpen(true)}
-              className="p-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-smooth flex items-center space-x-1"
-              style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-              title="Saved Quotes"
-            >
-              <span>⭐</span>
-              <span className="hidden sm:inline">Quotes</span>
-            </button>
-
-            {/* Auth / Account Profile Button */}
-            <button
-              onClick={() => setIsAuthModalOpen(true)}
-              className="p-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-smooth flex items-center space-x-1.5"
-              style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-              title="Account & Cloud Sync"
-            >
-              <span>👤</span>
-              <span className="hidden sm:inline">{currentUser ? currentUser.username : 'Account'}</span>
-            </button>
 
             {/* Theme Toggle Button */}
             <button
@@ -655,36 +559,18 @@ function DashboardView({
   onNavigate,
   onRefresh,
   showToast,
-  showAppreciation,
-  onOpenSessionHistory,
-  onOpenFavorites
+  showAppreciation
 }) {
-  const [quoteFav, setQuoteFav] = useState(todayQuote?.is_favorite || false);
-  const [rescheduleTask, setRescheduleTask] = useState(null);
-  const [partialTask, setPartialTask] = useState(null);
-  const [doubtTask, setDoubtTask] = useState(null);
-  const [interruptionTask, setInterruptionTask] = useState(null);
-
-  // Wasted Time quick modal state
-  const [isLogWastedModalOpen, setIsLogWastedModalOpen] = useState(false);
-  const [wastedLogMins, setWastedLogMins] = useState(30);
-  const [wastedCategory, setWastedCategory] = useState('Avoidable Distraction');
-  const [wastedNotes, setWastedNotes] = useState('');
-
-  // 2 DSA Syllabus Topics state
+  const [redoCount, setRedoCount] = useState(0);
   const [dsaTopics, setDsaTopics] = useState([]);
-
-  // English Simple Practice state
-  const [practisedEnglish, setPractisedEnglish] = useState(englishToday?.log?.is_completed ? 'yes' : null);
-  const [actualEnglishMinutes, setActualEnglishMinutes] = useState(
-    englishToday?.log?.actual_minutes !== undefined ? englishToday.log.actual_minutes : (englishToday?.log?.time_spent_seconds ? Math.floor(englishToday.log.time_spent_seconds / 60) : 30)
-  );
-  const [savingEnglish, setSavingEnglish] = useState(false);
   const [autoRescheduling, setAutoRescheduling] = useState(false);
 
   useEffect(() => {
     window.LastChanceAPI.getDSATopics().then(res => {
       setDsaTopics(res.topics || []);
+    }).catch(() => {});
+    window.LastChanceAPI.getRedoTasks('PENDING').then(res => {
+      setRedoCount(res.count || (res.redo_tasks || []).length || 0);
     }).catch(() => {});
   }, []);
 
@@ -697,37 +583,32 @@ function DashboardView({
   const academicTarget = plan.academic_target_minutes || 240;
   const academicPct = Math.min(100, Math.round((academicDone / academicTarget) * 100));
   const academicRemaining = Math.max(0, academicTarget - academicDone);
-  const academicOvertime = Math.max(0, academicDone - academicTarget);
 
   const shiftsCompleted = shifts.filter(s => s.status === 'COMPLETED').length;
-  const wrapupCompleted = wrapup?.status === 'COMPLETED';
+  const totalShiftsCount = shifts.length;
+
+  // Next recommended task: first non-completed shift or wrapup
+  const nextShift = shifts.find(s => s.status !== 'COMPLETED') || (wrapup && wrapup.status !== 'COMPLETED' ? wrapup : null);
 
   const dsaSolved = dsaTopics.filter(t => t.status === 'Completed').length || dailyDSA?.solved_count || 0;
   const englishCompleted = englishToday?.log?.is_completed || false;
-  const englishDone = englishCompleted;
-  const englishMins = actualEnglishMinutes || (englishToday?.log?.time_spent_seconds ? Math.floor(englishToday.log.time_spent_seconds / 60) : 0);
-  const englishShortfall = Math.max(0, 30 - englishMins);
+  const englishMins = englishToday?.log?.actual_minutes || (englishToday?.log?.time_spent_seconds ? Math.floor(englishToday.log.time_spent_seconds / 60) : 0);
 
-  const handleToggleQuoteFav = async () => {
-    if (!todayQuote) return;
-    try {
-      await window.LastChanceAPI.saveFavoriteQuote(todayQuote.quote_text, todayQuote.author || 'Anonymous');
-      setQuoteFav(!quoteFav);
-      showToast(quoteFav ? 'Removed quote from favorites' : 'Saved quote to favorites!', 'success');
-    } catch (e) {
-      showToast('Notice: ' + e.message, 'info');
-    }
-  };
-
-  const handleQuickCompleteShift = async (shift) => {
+  const handleQuickCompleteShift = async (shift, addToRedo = false) => {
     try {
       await window.LastChanceAPI.completeShift(shift.id, {
         actual_minutes: shift.duration_minutes || 45,
         confidence_rating: 4,
-        notes: 'Completed on schedule'
+        notes: 'Completed on schedule',
+        add_to_redo: addToRedo,
+        redo_reason: addToRedo ? 'Added to Redo queue for revision' : null
       });
       await onRefresh();
-      showAppreciation("Excellent work! You completed this academic shift. Build on that progress.");
+      if (addToRedo) {
+        showToast('Shift completed and added to Redo queue!', 'success');
+      } else {
+        showAppreciation("Excellent work! You completed this academic shift. Build on that progress.");
+      }
     } catch (e) {
       showToast('Failed to complete shift: ' + e.message, 'error');
     }
@@ -742,7 +623,7 @@ function DashboardView({
         notes: 'Wrap-up and active recall completed'
       });
       await onRefresh();
-      showAppreciation("Great consistency! Daily wrap-up completed without notes.");
+      showAppreciation("Great consistency! Daily wrap-up completed.");
     } catch (e) {
       showToast('Failed to complete wrap-up: ' + e.message, 'error');
     }
@@ -753,7 +634,7 @@ function DashboardView({
     try {
       const res = await window.LastChanceAPI.autoReschedule();
       await onRefresh();
-      showToast(`Auto-rescheduled ${res.rescheduled_count} overdue task(s). Prioritized Discrete Structures!`, 'success');
+      showToast(`Rescheduled ${res.rescheduled_count || 0} overdue tasks to upcoming slots without losing history.`, 'success');
     } catch (e) {
       showToast('Failed to auto-reschedule: ' + e.message, 'error');
     } finally {
@@ -761,69 +642,49 @@ function DashboardView({
     }
   };
 
-  const handleLogWastedTime = async () => {
-    if (wastedLogMins <= 0) {
-      showToast('Please enter a valid duration', 'error');
-      return;
-    }
-    try {
-      await window.LastChanceAPI.logWastedTime({
-        wasted_date: dates?.today_str || new Date().toISOString().split('T')[0],
-        minutes: wastedLogMins,
-        category: wastedCategory,
-        notes: wastedNotes
-      });
-      setIsLogWastedModalOpen(false);
-      setWastedNotes('');
-      await onRefresh();
-      showToast('Unproductive time logged honestly for improvement.');
-    } catch (e) {
-      showToast('Failed to log wasted time: ' + e.message, 'error');
-    }
-  };
-
-  const handleSaveEnglishPractice = async () => {
-    setSavingEnglish(true);
-    try {
-      await window.LastChanceAPI.saveEnglishSimple({
-        practice_date: dates?.today_str || new Date().toISOString().split('T')[0],
-        actual_minutes: actualEnglishMinutes,
-        notes: 'Logged from dashboard'
-      });
-      await onRefresh();
-      showAppreciation("Great consistency! English speaking practice logged.");
-    } catch (e) {
-      showToast('Failed to save English practice: ' + e.message, 'error');
-    } finally {
-      setSavingEnglish(false);
-    }
-  };
-
-  const handleToggleDSATopic = async (topic) => {
-    const newStatus = topic.status === 'Completed' ? 'Pending' : 'Completed';
-    try {
-      await window.LastChanceAPI.updateDSATopic(topic.id, {
-        status: newStatus,
-        time_spent_minutes: topic.time_spent_minutes || 25
-      });
-      const res = await window.LastChanceAPI.getDSATopics();
-      setDsaTopics(res.topics || []);
-      await onRefresh();
-      if (newStatus === 'Completed') {
-        showAppreciation("Consistency milestone! DSA question completed.");
-      } else {
-        showToast('DSA topic updated to Pending');
-      }
-    } catch (e) {
-      showToast('Failed to update DSA: ' + e.message, 'error');
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* SECTION 0: PROMINENT QUOTE OF THE DAY HERO (Mountain Sunrise Design) */}
+      {/* SECTION A: GREETING & DAILY CONTEXT */}
+      <div className="p-4 sm:p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+        <div>
+          <div className="flex items-center space-x-2">
+            <span className="text-xl">🏔️</span>
+            <h1 className="text-lg sm:text-xl font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
+              Welcome back, Aman!
+            </h1>
+          </div>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            {dates?.formatted_date || timeData?.formatted_date || 'Today'} • <span className="font-mono font-bold" style={{ color: 'var(--text-secondary)' }}>{timeData?.formatted_time || ''} IST</span>
+          </p>
+        </div>
+
+        {/* Compact Daily Target Summary */}
+        <div className="sm:text-right space-y-1.5 shrink-0">
+          <div className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+            Daily Academic Target: <strong className="text-indigo-400 font-bold">4h (240 mins)</strong>
+          </div>
+          <div className="flex items-center sm:justify-end space-x-2 text-xs">
+            <span className="font-bold text-emerald-400 font-mono">{academicDone}m studied</span>
+            <span style={{ color: 'var(--text-muted)' }}>•</span>
+            <span className="font-bold font-mono" style={{ color: academicRemaining > 0 ? '#f59e0b' : '#10b981' }}>
+              {academicRemaining > 0 ? `${academicRemaining}m remaining` : 'Target Met! 🎉'}
+            </span>
+          </div>
+          <div className="w-full sm:w-48 bg-slate-800 rounded-full h-2 overflow-hidden border" style={{ borderColor: 'var(--border-color)' }}>
+            <div
+              className="h-full rounded-full transition-smooth"
+              style={{
+                width: `${academicPct}%`,
+                backgroundColor: academicPct >= 100 ? '#10b981' : '#f59e0b'
+              }}
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION B: PROMINENT QUOTE OF THE DAY HERO (Mountain Sunrise Design - ZERO HOVER EFFECT) */}
       {todayQuote && (
-        <div className="quote-hero-card card-3d p-6 relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+        <div className="quote-hero-card p-5 sm:p-6 relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md">
           <div className="space-y-2 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-500 border border-amber-500/35 uppercase tracking-widest font-mono">
@@ -831,648 +692,302 @@ function DashboardView({
               </span>
               <span className="text-[11px] font-mono text-slate-400">• Stable in IST for {dates?.today_str || 'today'}</span>
             </div>
-            <blockquote className="text-lg sm:text-xl md:text-2xl font-bold tracking-tight text-slate-100 leading-snug">
+            <blockquote className="text-base sm:text-lg md:text-xl font-bold tracking-tight leading-snug" style={{ color: 'var(--text-primary)' }}>
               “{todayQuote.quote_text}”
             </blockquote>
-            <div className="flex items-center space-x-3 text-xs text-slate-400">
-              <span className="font-semibold text-amber-400">— {todayQuote.author || 'Unknown'}</span>
+            <div className="flex items-center space-x-3 text-xs">
+              <span className="font-bold text-amber-500">— {todayQuote.author || 'Unknown'}</span>
               {todayQuote.context && (
-                <span className="italic text-[11px] text-slate-400 hidden sm:inline">• {todayQuote.context}</span>
+                <span className="italic text-[11px] hidden sm:inline" style={{ color: 'var(--text-muted)' }}>• {todayQuote.context}</span>
               )}
             </div>
           </div>
-          <div className="flex items-center space-x-2 shrink-0 self-end md:self-center">
-            <button
-              onClick={handleToggleQuoteFav}
-              className={`btn-tactile px-3.5 py-2 rounded-lg text-xs font-bold border transition-smooth flex items-center space-x-1.5 ${
-                quoteFav ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-sm' : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:text-white'
-              }`}
-              title={quoteFav ? 'Saved in favorites' : 'Bookmark Quote'}
-            >
-              <span>{quoteFav ? '★' : '☆'}</span>
-              <span>{quoteFav ? 'Saved' : 'Save Quote'}</span>
-            </button>
-            <button
-              onClick={onOpenFavorites}
-              className="btn-tactile px-3 py-2 rounded-lg text-xs font-semibold btn-secondary"
-            >
-              Favorites
-            </button>
-          </div>
         </div>
       )}
 
-      {/* SECTION 1: Overdue Work Alert Banner (if overdue shifts exist) */}
+      {/* Overdue Banner if overdue tasks exist */}
       {overdueCount > 0 && (
-        <div className="lc-card p-4 border-l-4 border-rose-500 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-md" style={{ backgroundColor: 'var(--bg-card)' }}>
-          <div className="flex items-center space-x-3">
-            <span className="text-2xl animate-pulse">⚠️</span>
-            <div>
-              <h3 className="text-sm font-bold text-rose-400">
-                {overdueCount} Unfinished Study Shift{overdueCount > 1 ? 's' : ''} Overdue
-              </h3>
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                Discrete Structures receives highest priority. Unfinished tasks can be automatically moved to next available study slots without losing original dates.
-              </p>
-            </div>
+        <div className="p-3.5 rounded-xl border border-rose-500/30 flex items-center justify-between gap-3 text-xs" style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)' }}>
+          <div className="flex items-center space-x-2">
+            <span className="text-lg">⚠️</span>
+            <span className="font-semibold text-rose-400">
+              {overdueCount} study shift{overdueCount > 1 ? 's' : ''} from previous days need attention.
+            </span>
           </div>
-          <div className="flex items-center space-x-2 shrink-0">
-            <button
-              onClick={handleAutoReschedule}
-              disabled={autoRescheduling}
-              className="btn-primary text-xs font-bold py-1.5 px-3"
-            >
-              {autoRescheduling ? 'Rescheduling...' : '⚡ Auto-Reschedule Work'}
-            </button>
-            <button
-              onClick={() => onNavigate('timetable')}
-              className="btn-secondary text-xs font-semibold py-1.5 px-3"
-            >
-              View Backlog →
-            </button>
-          </div>
+          <button
+            onClick={handleAutoReschedule}
+            disabled={autoRescheduling}
+            className="btn-primary text-xs font-bold py-1 px-3 shrink-0"
+          >
+            {autoRescheduling ? 'Rescheduling...' : 'Auto-Reschedule →'}
+          </button>
         </div>
       )}
 
-      {/* SECTION 2: PROMINENT TOTAL TIME STUDIED COUNTER CARD */}
-      <div className="lc-card p-5 border-l-4 border-indigo-500 space-y-4 shadow-sm" style={{ backgroundColor: 'var(--bg-card)' }}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+      {/* SECTION C: TODAY'S STUDY TASKS — THE MAIN PRIORITY */}
+      <div className="space-y-4">
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2.5" style={{ borderColor: 'var(--border-color)' }}>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 uppercase tracking-wider">
-                Audited Cumulative Counter
+              <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                Today's Mission
+              </h2>
+              <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 font-mono">
+                {shiftsCompleted} / {totalShiftsCount} Completed
               </span>
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>• Real Stored Sessions</span>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black mt-1" style={{ color: 'var(--text-primary)' }}>
-              TOTAL TIME STUDIED: <span className="font-mono text-indigo-400">{studyTotals?.total_academic_hours || '0 hrs 0 mins'}</span>
-            </h2>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Calculated exclusively from verified academic study sessions since timetable start ({studyTotals?.since_start_date || '27 Oct 2026'}). Paused time excluded.
+              Five 45-minute academic shifts + 15-minute active recall wrap-up.
             </p>
           </div>
           <button
-            onClick={onOpenSessionHistory}
-            className="btn-secondary text-xs font-semibold py-1.5 px-3 shrink-0 self-start md:self-center"
+            onClick={() => onNavigate('timetable')}
+            className="btn-secondary text-xs font-semibold py-1 px-3 self-start sm:self-center"
           >
-            📋 Inspect Session Log
+            Full 25-Day Timetable →
           </button>
         </div>
 
-        {/* Breakdown Chips */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
-          <div className="p-2.5 rounded-lg border" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <span className="block text-[10px] text-slate-400 uppercase font-bold">Today Academic</span>
-            <span className="font-bold text-sm text-indigo-400 font-mono">{studyTotals?.today_academic_minutes || 0}m</span>
-          </div>
-          <div className="p-2.5 rounded-lg border" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <span className="block text-[10px] text-slate-400 uppercase font-bold">This Week</span>
-            <span className="font-bold text-sm text-slate-200 font-mono">{formatMins(studyTotals?.week_academic_minutes || 0)}</span>
-          </div>
-          <div className="p-2.5 rounded-lg border" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <span className="block text-[10px] text-slate-400 uppercase font-bold">This Month</span>
-            <span className="font-bold text-sm text-slate-200 font-mono">{formatMins(studyTotals?.month_academic_minutes || 0)}</span>
-          </div>
-          <div className="p-2.5 rounded-lg border" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <span className="block text-[10px] text-slate-400 uppercase font-bold">Total DSA Time</span>
-            <span className="font-bold text-sm text-emerald-400 font-mono">{formatMins(studyTotals?.total_dsa_minutes || 0)}</span>
-          </div>
-          <div className="p-2.5 rounded-lg border" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <span className="block text-[10px] text-slate-400 uppercase font-bold">Total English</span>
-            <span className="font-bold text-sm text-amber-400 font-mono">{formatMins(studyTotals?.total_english_minutes || 0)}</span>
-          </div>
-          <div className="p-2.5 rounded-lg border" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <span className="block text-[10px] text-slate-400 uppercase font-bold">Wrap-up / Recall</span>
-            <span className="font-bold text-sm text-cyan-400 font-mono">{formatMins(studyTotals?.total_wrapup_minutes || 0)}</span>
-          </div>
-        </div>
-      </div>
+        {/* Highlighted NEXT RECOMMENDED TASK */}
+        {nextShift && nextShift.status !== 'COMPLETED' && (
+          <div className="mission-card-next p-4 sm:p-5 rounded-xl space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded bg-amber-500 text-slate-950 font-mono">
+                🚀 Current Focus • Shift {nextShift.shift_number || (nextShift.is_wrapup ? 'Wrap-up' : 1)}
+              </span>
+              <span className="text-xs font-bold font-mono px-2 py-0.5 rounded border border-amber-500/40 text-amber-400">
+                ⏱️ {nextShift.remaining_minutes || nextShift.duration_minutes || 45} mins
+              </span>
+            </div>
 
-      {/* SECTION 3: Today's Date, IST Clock, Exam Countdown & Daily Target Progress */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left 2 Cols: Today's Target Progress Card */}
-        <div className="lg:col-span-2 lc-card p-5 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Daily Academic Commitment</span>
-              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                Today's Target: 4 Hours (240 Mins)
+              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                {nextShift.subject_code || 'Academic Course'} • {nextShift.unit_name || 'Unit Study'}
+              </span>
+              <h3 className="text-base sm:text-lg font-black mt-0.5" style={{ color: 'var(--text-primary)' }}>
+                {nextShift.topic_title || nextShift.task_description}
               </h3>
             </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs px-2.5 py-1 rounded-full font-bold font-mono" style={{
-                backgroundColor: academicPct >= 100 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(79, 70, 229, 0.15)',
-                color: academicPct >= 100 ? '#34d399' : '#818cf8',
-                border: '1px solid ' + (academicPct >= 100 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(79, 70, 229, 0.3)')
-              }}>
-                {academicPct}% Complete
-              </span>
-              {academicOvertime > 0 && (
-                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  +{academicOvertime}m Extra
-                </span>
-              )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                onClick={() => onStartSession(nextShift)}
+                className="btn-primary text-xs font-bold py-2 px-4 flex items-center space-x-1.5 shadow-md"
+              >
+                <span>▶</span>
+                <span>Start Shift Focus</span>
+              </button>
+              <button
+                onClick={() => handleQuickCompleteShift(nextShift, false)}
+                className="btn-secondary text-xs font-semibold py-2 px-3"
+              >
+                ✓ Complete
+              </button>
+              <button
+                onClick={() => handleQuickCompleteShift(nextShift, true)}
+                className="btn-secondary text-xs font-semibold py-2 px-3 text-amber-400 hover:text-amber-300"
+                title="Complete and add to Redo queue for spaced repetition"
+              >
+                ✓ + 🔁 Complete & Add to Redo
+              </button>
             </div>
           </div>
+        )}
 
-          {/* Progress Bar (Capped at 100%) */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-              <span>Completed: <strong className="text-indigo-400 font-bold">{academicDone} mins</strong></span>
-              <span>Remaining: <strong className="text-slate-300 font-bold">{academicRemaining} mins</strong></span>
-            </div>
-            <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border" style={{ borderColor: 'var(--border-color)' }}>
+        {/* REST OF THE DAY'S SHIFTS LIST */}
+        <div className="space-y-2.5">
+          {shifts.map((shift, idx) => {
+            const isCompleted = shift.status === 'COMPLETED';
+            const isCurrent = nextShift && nextShift.id === shift.id;
+            return (
               <div
-                className="h-full rounded-full transition-smooth"
+                key={shift.id || idx}
+                className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-smooth ${
+                  isCompleted ? 'opacity-70' : ''
+                }`}
                 style={{
-                  width: `${academicPct}%`,
-                  backgroundColor: academicPct >= 100 ? '#10b981' : '#4f46e5'
+                  backgroundColor: 'var(--bg-card)',
+                  borderColor: isCurrent ? 'var(--border-focus)' : 'var(--border-color)'
                 }}
-              ></div>
-            </div>
-          </div>
-
-          {/* 4 Separate Pillar Indicators */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-xs">
-            <div className="p-3 rounded-lg border text-center space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-              <span className="text-[10px] uppercase font-bold text-slate-400">Shifts (5x 45m)</span>
-              <div className="text-lg font-black text-indigo-400 font-mono">{shiftsCompleted} / 5</div>
-              <span className="text-[10px] text-slate-400">{shiftsCompleted === 5 ? 'All Complete!' : `${5 - shiftsCompleted} remaining`}</span>
-            </div>
-            <div className="p-3 rounded-lg border text-center space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-              <span className="text-[10px] uppercase font-bold text-slate-400">Wrap-up (15m)</span>
-              <div className="text-lg font-black font-mono" style={{ color: wrapupCompleted ? '#34d399' : '#f59e0b' }}>
-                {wrapupCompleted ? '✓ Done' : 'Pending'}
-              </div>
-              <span className="text-[10px] text-slate-400">Active Recall</span>
-            </div>
-            <div className="p-3 rounded-lg border text-center space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-              <span className="text-[10px] uppercase font-bold text-slate-400">Daily DSA (Extra)</span>
-              <div className="text-lg font-black font-mono" style={{ color: dsaSolved >= 2 ? '#34d399' : '#38bdf8' }}>
-                {dsaSolved} / 2
-              </div>
-              <span className="text-[10px] text-slate-400">Outside 4h Target</span>
-            </div>
-            <div className="p-3 rounded-lg border text-center space-y-1" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-              <span className="text-[10px] uppercase font-bold text-slate-400">English (30m Extra)</span>
-              <div className="text-lg font-black font-mono" style={{ color: englishDone ? '#34d399' : '#fbbf24' }}>
-                {englishMins} / 30m
-              </div>
-              <span className="text-[10px] text-slate-400">Outside 4h Target</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Right 1 Col: Time Remaining Today & Exam Countdown */}
-        <div className="space-y-4">
-          {/* Real-time Time Remaining Today Card */}
-          <div className="lc-card p-4 space-y-2 border-l-4 border-amber-500" style={{ backgroundColor: 'var(--bg-card)' }}>
-            <div className="flex items-center justify-between text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
-              <span>⏳ TIME REMAINING TODAY</span>
-              <span className="text-amber-400 font-bold animate-pulse">Live IST</span>
-            </div>
-            <div className="text-2xl font-black font-mono text-amber-400">
-              {timeData?.time_left_today?.formatted || 'Calculating...'}
-            </div>
-            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              Countdown to midnight IST ({timeData?.formatted_time}). Plan your 45-minute study shifts accordingly.
-            </p>
-          </div>
-
-          {/* Exam Countdown Card */}
-          <div className="lc-card p-4 space-y-2.5">
-            <div className="flex items-center justify-between text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-              <span>🎯 Exam Milestones</span>
-              <span className="text-[10px] text-rose-400 font-bold">{dates?.days_to_exam || 0}d to First Exam</span>
-            </div>
-            <div className="space-y-1.5 text-xs">
-              <div className="p-2 rounded border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                <span className="font-semibold text-slate-200">CSN 3001 Data Structures</span>
-                <span className="badge badge-error">26 Nov</span>
-              </div>
-              <div className="p-2 rounded border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                <span className="font-semibold text-slate-200">CSN 3003 Discrete Structures</span>
-                <span className="badge badge-error">28 Nov</span>
-              </div>
-              <div className="p-2 rounded border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                <span className="font-semibold text-slate-200">CSN 3004 Object-Oriented Prog</span>
-                <span className="badge badge-error">01 Dec</span>
-              </div>
-              <div className="p-2 rounded border flex items-center justify-between" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                <span className="font-semibold text-slate-200">CSN 3002 Data Science & ML</span>
-                <span className="badge badge-error">04 Dec</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-
-
-      {/* SECTION 5: TODAY'S STUDY SHIFTS (Shift 1 to 5 + Wrap-up) */}
-      <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2" style={{ borderColor: 'var(--border-color)' }}>
-          <div>
-            <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-              Today's Scheduled Academic Shifts ({shifts.length} Shifts + 1 Wrap-up)
-            </h3>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Follow the imported Word study timetable. 5x 45-minute shifts (225m) + 15-minute active recall wrap-up = 240 mins target.
-            </p>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => onNavigate('timetable')}
-              className="btn-secondary text-xs font-semibold py-1 px-3"
-            >
-              Full 25-Day Plan →
-            </button>
-          </div>
-        </div>
-
-        {shifts.length === 0 ? (
-          <div className="lc-card p-8 text-center space-y-3">
-            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
-              No study shifts scheduled for today.
-            </p>
-            <button
-              onClick={() => onNavigate('timetable')}
-              className="btn-primary text-xs font-bold"
-            >
-              View Study Timetable
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3.5">
-            {shifts.map((shift, idx) => {
-              const isCompleted = shift.status === 'COMPLETED';
-              const isOverdue = shift.status === 'OVERDUE';
-              const isRescheduled = shift.status === 'RESCHEDULED';
-              const isPartial = shift.status === 'PARTIALLY_COMPLETED';
-
-              return (
-                <div
-                  key={shift.id}
-                  className={`lc-card p-4 space-y-3 transition-smooth border-l-4 ${
-                    isCompleted ? 'border-emerald-500' :
-                    isOverdue ? 'border-rose-500' :
-                    isRescheduled ? 'border-amber-500' : 'border-indigo-500'
-                  }`}
-                  style={{ backgroundColor: 'var(--bg-card)' }}
-                >
-                  {/* Top Bar: Shift Number, Course, Unit, Duration, Dates */}
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-black px-2.5 py-0.5 rounded text-white" style={{ backgroundColor: shift.subject_color || '#4f46e5' }}>
-                        SHIFT {shift.shift_number || idx + 1} • {shift.duration_minutes || 45} MIN
-                      </span>
-                      <span className="text-xs font-bold text-slate-200">
-                        {shift.subject_name} ({shift.subject_code})
-                      </span>
-                      {shift.unit_name && (
-                        <span className="text-xs px-2 py-0.5 rounded font-medium text-slate-300" style={{ backgroundColor: 'var(--bg-card-elevated)' }}>
-                          {shift.unit_name}
-                        </span>
-                      )}
+              >
+                <div className="flex items-start sm:items-center space-x-3 min-w-0">
+                  <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center font-bold text-xs font-mono ${
+                    isCompleted ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-slate-800 text-slate-300 border border-slate-700'
+                  }`}>
+                    {isCompleted ? '✓' : shift.shift_number || (idx + 1)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                      <span className="font-bold text-indigo-400">{shift.subject_code}</span>
+                      <span>•</span>
+                      <span>{shift.unit_name || 'Unit'}</span>
+                      <span>•</span>
+                      <span>{shift.duration_minutes || 45} mins</span>
                     </div>
-
-                    <div className="flex items-center space-x-2">
-                      {shift.original_date && shift.original_date !== shift.scheduled_date && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30" title="Originally planned date">
-                          Orig: {shift.original_date}
-                        </span>
-                      )}
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                        isCompleted ? 'badge-success badge' :
-                        isOverdue ? 'badge-error badge' :
-                        isRescheduled ? 'badge-warning badge' : 'badge-info badge'
-                      }`}>
-                        {shift.status.replace('_', ' ')}
-                      </span>
+                    <div className="font-bold text-sm truncate" style={{ color: 'var(--text-primary)' }}>
+                      {shift.topic_title || shift.task_description}
                     </div>
                   </div>
+                </div>
 
-                  {/* Task Description */}
-                  <div className="space-y-1">
-                    <div className="text-sm font-bold text-slate-100">
-                      {shift.task_description || shift.topic_title}
-                    </div>
-                    {shift.notes && (
-                      <div className="text-xs text-slate-400 italic">
-                        Note: {shift.notes}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Action Controls */}
-                  <div className="flex flex-wrap items-center justify-between pt-2 gap-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                    <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 self-end sm:self-center shrink-0">
+                  {isCompleted ? (
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30">
+                      Completed ✓
+                    </span>
+                  ) : (
+                    <>
                       <button
                         onClick={() => onStartSession(shift)}
-                        className="btn-primary text-xs font-bold py-1.5 px-3 flex items-center space-x-1.5"
+                        className="btn-secondary text-xs font-semibold py-1.5 px-3"
                       >
-                        <span>⏱️</span>
-                        <span>Start Focus Session (45m)</span>
-                      </button>
-                      {!isCompleted && (
-                        <button
-                          onClick={() => handleQuickCompleteShift(shift)}
-                          className="px-3 py-1.5 rounded-md text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-smooth"
-                        >
-                          ✓ Mark Complete
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      {!isCompleted && (
-                        <button
-                          onClick={() => setPartialTask(shift)}
-                          className="px-2.5 py-1.5 rounded-md text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 transition-smooth"
-                          title="Record partial progress and reschedule remaining minutes"
-                        >
-                          Partial (Stop Early)
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setRescheduleTask(shift)}
-                        className="px-2.5 py-1.5 rounded-md text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 transition-smooth"
-                        title="Move this shift to another date"
-                      >
-                        Reschedule
+                        Start Focus
                       </button>
                       <button
-                        onClick={() => setInterruptionTask(shift)}
-                        className="px-2.5 py-1.5 rounded-md text-xs font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-smooth"
-                        title="Report an unexpected interruption"
+                        onClick={() => handleQuickCompleteShift(shift, false)}
+                        className="btn-secondary text-xs font-semibold py-1.5 px-2.5"
+                        title="Mark Complete"
                       >
-                        ⚡ Interrupted
+                        ✓
                       </button>
                       <button
-                        onClick={() => setDoubtTask(shift)}
-                        className="px-2.5 py-1.5 rounded-md text-xs font-medium text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-smooth"
-                        title="Attach a note or unresolved doubt"
+                        onClick={() => handleQuickCompleteShift(shift, true)}
+                        className="btn-secondary text-xs font-semibold py-1.5 px-2.5 text-amber-400"
+                        title="Complete & Add to Redo"
                       >
-                        + Doubt/Note
+                        🔁
                       </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* 15-MINUTE WRAP-UP CARD */}
-            {wrapup && (
-              <div className="lc-card p-4 space-y-3 border-l-4 border-cyan-500 shadow-sm" style={{ backgroundColor: 'var(--bg-card)' }}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs font-black px-2.5 py-0.5 rounded text-white bg-cyan-600">
-                      WRAP-UP BLOCK • 15 MIN
-                    </span>
-                    <span className="text-xs font-bold text-slate-200">
-                      Active Recall & Next Action Planning
-                    </span>
-                  </div>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                    wrapupCompleted ? 'badge-success badge' : 'badge-warning badge'
-                  }`}>
-                    {wrapup.status.replace('_', ' ')}
-                  </span>
-                </div>
-
-                <div className="text-xs text-slate-300">
-                  {wrapup.task_description || '15-minute wrap-up: recall key points without notes, tick off completed work, and write the next action.'}
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                  <button
-                    onClick={() => onStartSession(wrapup)}
-                    className="btn-secondary text-xs font-bold py-1.5 px-3 flex items-center space-x-1"
-                  >
-                    <span>⏱️</span>
-                    <span>Start 15m Recall Session</span>
-                  </button>
-                  {!wrapupCompleted && (
-                    <button
-                      onClick={handleQuickCompleteWrapup}
-                      className="px-3 py-1.5 rounded-md text-xs font-bold text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-smooth"
-                    >
-                      ✓ Mark Wrap-up Complete
-                    </button>
+                    </>
                   )}
                 </div>
               </div>
-            )}
-          </div>
-        )}
-      </div>
+            );
+          })}
 
-      {/* SECTION 6: Compulsory Extras Row (2 DSA Questions & English Speaking) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Card A: 2 DSA Syllabus Questions */}
-        <div className="lc-card p-4.5 space-y-3 border-emerald-500/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <span className="text-base">💻</span>
-              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                Today's Compulsory DSA Questions (2 Topics)
-              </h3>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-              Outside 4h Academic Target
-            </span>
-          </div>
-          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            Solve 2 questions from different Data Structures topics as specified in your timetable:
-          </p>
-
-          <div className="space-y-2.5">
-            {dsaTopics.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3 text-center">Loading today's DSA rotation...</p>
-            ) : (
-              dsaTopics.map((topic, idx) => {
-                const isDone = topic.status === 'Completed';
-                return (
-                  <div key={topic.id} className="p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-[10px] font-bold text-emerald-400 uppercase font-mono">Q#{idx + 1}</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-medium">
-                          {topic.syllabus_topic || topic.topic_name}
-                        </span>
-                        {topic.difficulty && (
-                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase font-mono ${
-                            topic.difficulty === 'Easy' ? 'bg-emerald-500/20 text-emerald-400' :
-                            topic.difficulty === 'Hard' ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'
-                          }`}>
-                            {topic.difficulty}
-                          </span>
-                        )}
-                      </div>
-                      <div className="font-bold text-sm text-slate-100">{topic.question_title || topic.topic_name}</div>
-                      {topic.problem_url && (
-                        <a href={topic.problem_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-indigo-400 hover:underline inline-flex items-center space-x-1 font-semibold">
-                          <span>Open Problem</span>
-                          <span>↗</span>
-                        </a>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2 shrink-0">
-                      <button
-                        onClick={() => handleToggleDSATopic(topic)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-smooth ${
-                          isDone
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-sm'
-                        }`}
-                      >
-                        {isDone ? '✓ Solved' : 'Mark Solved'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Card B: English Speaking Practice (30 Min) */}
-        <div className="lc-card p-4.5 space-y-3 border-amber-500/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <span className="text-base">🗣️</span>
-              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                English Speaking Practice (Daily 30m)
-              </h3>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
-              🔥 {englishToday?.streak_days || 0}d streak
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-lg border space-y-3" style={{ backgroundColor: 'var(--bg-card-elevated)', borderColor: 'var(--border-color)' }}>
-            <div className="text-xs font-semibold text-slate-200">
-              Did you practise English speaking today? (Outside 4h target)
-            </div>
-
-            <div className="flex items-center space-x-3 text-xs">
-              <label className="flex items-center space-x-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="practised"
-                  checked={practisedEnglish === 'yes'}
-                  onChange={() => setPractisedEnglish('yes')}
-                  className="accent-indigo-600"
-                />
-                <span className="font-bold text-emerald-400">Yes, I practised</span>
-              </label>
-              <label className="flex items-center space-x-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="practised"
-                  checked={practisedEnglish === 'no'}
-                  onChange={() => {
-                    setPractisedEnglish('no');
-                    setActualEnglishMinutes(0);
-                  }}
-                  className="accent-indigo-600"
-                />
-                <span className="font-bold text-rose-400">No, missed today</span>
-              </label>
-            </div>
-
-            {practisedEnglish === 'yes' && (
-              <div className="space-y-2 pt-1 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                <div className="flex items-center justify-between text-xs">
-                  <label className="font-medium text-slate-300">Actual speaking duration:</label>
-                  <div className="flex items-center space-x-1">
-                    <input
-                      type="number"
-                      min="1"
-                      max="120"
-                      value={actualEnglishMinutes}
-                      onChange={e => setActualEnglishMinutes(Math.max(0, Number(e.target.value)))}
-                      className="w-16 px-2 py-1 text-xs rounded border text-center font-mono font-bold"
-                    />
-                    <span className="text-slate-400">minutes</span>
-                  </div>
+          {/* Daily 15m Wrap-up shift */}
+          {wrapup && (
+            <div
+              className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                wrapup.status === 'COMPLETED' ? 'opacity-70' : ''
+              }`}
+              style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+            >
+              <div className="flex items-center space-x-3">
+                <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center font-bold text-xs ${
+                  wrapup.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+                }`}>
+                  {wrapup.status === 'COMPLETED' ? '✓' : '📝'}
                 </div>
-
-                <div className="text-[11px] text-slate-400 flex justify-between">
-                  <span>Target: 30 minutes</span>
-                  <span className={englishShortfall > 0 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
-                    {englishShortfall > 0 ? `Shortfall: ${englishShortfall}m unmet` : 'Target achieved! Shortfall: 0m'}
-                  </span>
+                <div>
+                  <div className="text-[11px] font-bold text-amber-400 uppercase">
+                    Shift 6 • Wrap-up (15 mins)
+                  </div>
+                  <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                    Active Recall & Daily Summary
+                  </div>
                 </div>
               </div>
-            )}
 
-            <button
-              onClick={handleSaveEnglishPractice}
-              disabled={savingEnglish || practisedEnglish === null}
-              className="w-full py-2 rounded-lg text-xs font-bold btn-primary disabled:opacity-50"
-            >
-              {savingEnglish ? 'Saving...' : 'Save English Practice Record'}
-            </button>
+              <div className="self-end sm:self-center">
+                {wrapup.status === 'COMPLETED' ? (
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30">
+                    Completed ✓
+                  </span>
+                ) : (
+                  <button
+                    onClick={handleQuickCompleteWrapup}
+                    className="btn-secondary text-xs font-semibold py-1.5 px-3"
+                  >
+                    ✓ Complete Wrap-up
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* SECTION D: COMPACT PROGRESS OVERVIEW */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+          Daily Progress Overview
+        </h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          {/* Card 1: Academic Study */}
+          <div className="p-3.5 rounded-xl border space-y-1.5" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+            <span className="text-[10px] uppercase font-bold text-indigo-400 block">📖 Academic Study</span>
+            <div className="text-base sm:text-lg font-black font-mono" style={{ color: 'var(--text-primary)' }}>
+              {academicDone} / {academicTarget}m
+            </div>
+            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              {academicPct}% of 4h commitment
+            </div>
+          </div>
+
+          {/* Card 2: DSA Questions */}
+          <div className="p-3.5 rounded-xl border space-y-1.5 cursor-pointer hover:border-emerald-500/40 transition-smooth"
+               onClick={() => onNavigate('dsa')}
+               style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+            <span className="text-[10px] uppercase font-bold text-emerald-400 block">💻 Daily DSA</span>
+            <div className="text-base sm:text-lg font-black font-mono text-emerald-400">
+              {dsaSolved} / 2 Solved
+            </div>
+            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Outside 4h study target →
+            </div>
+          </div>
+
+          {/* Card 3: English Speaking */}
+          <div className="p-3.5 rounded-xl border space-y-1.5 cursor-pointer hover:border-amber-500/40 transition-smooth"
+               onClick={() => onNavigate('english')}
+               style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+            <span className="text-[10px] uppercase font-bold text-amber-400 block">🗣️ English Speaking</span>
+            <div className="text-base sm:text-lg font-black font-mono text-amber-400">
+              {englishMins} / 30m
+            </div>
+            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              {englishCompleted ? 'Completed today ✓' : 'Practice speaking →'}
+            </div>
+          </div>
+
+          {/* Card 4: Redo Queue */}
+          <div className="p-3.5 rounded-xl border space-y-1.5 cursor-pointer hover:border-rose-500/40 transition-smooth"
+               onClick={() => onNavigate('redo')}
+               style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+            <span className="text-[10px] uppercase font-bold text-rose-400 block">🔁 Redo Queue</span>
+            <div className="text-base sm:text-lg font-black font-mono text-rose-400">
+              {redoCount} Queued
+            </div>
+            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Spaced repetition list →
+            </div>
           </div>
         </div>
       </div>
 
-      {/* MODALS */}
-      {/* Partial Complete Modal */}
-      {partialTask && (
-        <PartialCompleteModal
-          task={partialTask}
-          onClose={() => setPartialTask(null)}
-          onSuccess={async () => {
-            setPartialTask(null);
-            await onRefresh();
-            showAppreciation("Recorded completed study duration and scheduled remaining work safely!");
-          }}
-          showToast={showToast}
-        />
-      )}
-
-      {/* Reschedule Modal */}
-      {rescheduleTask && (
-        <RescheduleModal
-          task={rescheduleTask}
-          onClose={() => setRescheduleTask(null)}
-          onSuccess={async () => {
-            setRescheduleTask(null);
-            await onRefresh();
-            showToast('Shift rescheduled to future date. History recorded.', 'success');
-          }}
-          showToast={showToast}
-        />
-      )}
-
-      {/* Interruption Modal */}
-      {interruptionTask && (
-        <InterruptionModal
-          task={interruptionTask}
-          onClose={() => setInterruptionTask(null)}
-          onSuccess={async () => {
-            setInterruptionTask(null);
-            await onRefresh();
-            showToast('Shift interruption logged.', 'info');
-          }}
-          showToast={showToast}
-        />
-      )}
-
-      {/* Doubt Modal */}
-      {doubtTask && (
-        <DoubtModal
-          task={doubtTask}
-          onClose={() => setDoubtTask(null)}
-          onSuccess={async () => {
-            setDoubtTask(null);
-            showToast('Doubt saved! You can track and resolve it in Revision & Doubts.', 'success');
-          }}
-          showToast={showToast}
-        />
-      )}
+      {/* SECTION E: HELPFUL NEXT ACTION */}
+      <div className="p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+        <div className="flex items-center space-x-3">
+          <span className="text-xl">💡</span>
+          <div>
+            <span className="font-bold text-amber-500 uppercase tracking-wider text-[10px] block">Helpful Next Step</span>
+            <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+              {nextShift
+                ? `Resume Shift ${nextShift.shift_number || 1}: ${nextShift.topic_title || nextShift.task_description} (${nextShift.remaining_minutes || 45} mins)`
+                : 'All scheduled shifts completed for today! Review Redo queue or practice DSA.'}
+            </span>
+          </div>
+        </div>
+        {nextShift && (
+          <button
+            onClick={() => onStartSession(nextShift)}
+            className="btn-primary text-xs font-bold py-1.5 px-4 shrink-0"
+          >
+            Start Now →
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -2573,525 +2088,436 @@ function CoursesUnitsView({ subjects, onRefresh, showToast, showAppreciation }) 
 
 
 function HandoutsView({ subjects, showToast }) {
-  const [handouts, setHandouts] = useState([]);
+  const [hierarchy, setHierarchy] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCourseId, setSelectedCourseId] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [handoutSubTab, setHandoutSubTab] = useState('files'); // 'files' | 'missing_checklist'
-  const [missingChecklist, setMissingChecklist] = useState(null);
-  const [loadingChecklist, setLoadingChecklist] = useState(false);
 
-  const loadMissingChecklist = async () => {
-    setLoadingChecklist(true);
-    try {
-      const res = await window.LastChanceAPI.getMissingMaterialsChecklist();
-      setMissingChecklist(res);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoadingChecklist(false);
-    }
-  };
+  // Navigation flow: 'courses' -> 'units' -> 'topics'
+  const [viewLevel, setViewLevel] = useState('courses');
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [selectedUnit, setSelectedUnit] = useState(null);
 
-  // Upload Form State
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadTitle, setUploadTitle] = useState('');
-  const [uploadCourseId, setUploadCourseId] = useState(subjects[0]?.id || 1);
-  const [uploadUnitNumber, setUploadUnitNumber] = useState(1);
-  const [uploadTopicName, setUploadTopicName] = useState('');
-  const [uploading, setUploading] = useState(false);
-
-  // Preview Modal State
+  // Preview Modal
   const [previewHandout, setPreviewHandout] = useState(null);
 
-  // Rename Modal State
-  const [renameHandout, setRenameHandout] = useState(null);
-  const [newTitle, setNewTitle] = useState('');
-
-  const loadHandouts = async () => {
+  const loadHierarchy = async () => {
     setLoading(true);
     try {
-      const cId = selectedCourseId === 'ALL' ? null : selectedCourseId;
-      const res = await window.LastChanceAPI.getHandouts(cId, null, searchQuery || null);
-      setHandouts(res.handouts || []);
+      const res = await window.LastChanceAPI.getHandoutsHierarchy();
+      const courses = res.courses || [];
+      setHierarchy(courses);
+
+      // Keep selectedCourse and selectedUnit up to date if currently open
+      if (selectedCourse) {
+        const updatedC = courses.find(c => c.id === selectedCourse.id);
+        if (updatedC) {
+          setSelectedCourse(updatedC);
+          if (selectedUnit) {
+            const updatedU = updatedC.units.find(u => u.id === selectedUnit.id);
+            if (updatedU) setSelectedUnit(updatedU);
+          }
+        }
+      }
     } catch (e) {
       console.error(e);
-      showToast('Failed to load handouts: ' + e.message, 'error');
+      showToast('Failed to load course handouts: ' + e.message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadHandouts();
-  }, [selectedCourseId, searchQuery]);
+    loadHierarchy();
+  }, []);
 
-  const handleUploadSubmit = async (e) => {
-    e.preventDefault();
-    if (!uploadFile) {
-      showToast('Please select a file to upload', 'error');
-      return;
-    }
-    setUploading(true);
+  const handleToggleTopic = async (topic) => {
+    const newStatus = topic.is_completed ? 'NOT_STARTED' : 'COMPLETED';
     try {
-      const fd = new FormData();
-      fd.append('file', uploadFile);
-      fd.append('course_id', uploadCourseId);
-      fd.append('unit_number', uploadUnitNumber);
-      if (uploadTitle) fd.append('title', uploadTitle);
-      if (uploadTopicName) fd.append('topic_name', uploadTopicName);
-
-      await window.LastChanceAPI.uploadHandout(fd);
-      showToast('Handout uploaded and linked successfully!', 'success');
-      setIsUploadModalOpen(false);
-      setUploadFile(null);
-      setUploadTitle('');
-      setUploadTopicName('');
-      loadHandouts();
-    } catch (err) {
-      showToast('Upload failed: ' + err.message, 'error');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleDelete = async (handout) => {
-    if (!window.confirm(`Are you sure you want to delete "${handout.title}"?`)) return;
-    try {
-      await window.LastChanceAPI.deleteHandout(handout.id);
-      showToast('Handout deleted.', 'info');
-      loadHandouts();
+      await window.LastChanceAPI.updateTopicStatus(topic.id, newStatus);
+      showToast(newStatus === 'COMPLETED' ? `Marked "${topic.title}" as completed!` : `Marked "${topic.title}" as not completed`);
+      await loadHierarchy();
     } catch (e) {
-      showToast('Failed to delete handout: ' + e.message, 'error');
+      showToast('Failed to update topic: ' + e.message, 'error');
     }
   };
 
-  const handleRenameSubmit = async () => {
-    if (!renameHandout || !newTitle.trim()) return;
-    try {
-      await window.LastChanceAPI.updateHandout(renameHandout.id, { title: newTitle.trim() });
-      showToast('Handout renamed successfully!', 'success');
-      setRenameHandout(null);
-      loadHandouts();
-    } catch (e) {
-      showToast('Failed to rename: ' + e.message, 'error');
-    }
-  };
-
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '0 KB';
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  const getCourseIcon = (code) => {
+    if (code.includes('3003')) return '📐'; // Discrete Structures
+    if (code.includes('3001')) return '🌲'; // Data Structures
+    if (code.includes('3004')) return '☕'; // OOP
+    if (code.includes('3002')) return '🤖'; // DSML
+    return '📚';
   };
 
   return (
     <div className="space-y-6">
-      {/* Header and Upload Button */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
-        <div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-            Course Handouts & Study Materials
-          </h2>
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Official lecture notes, syllabus documents, and missing-materials checklist for all 4 courses.
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1 p-1 rounded-lg border text-xs" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
-            <button
-              onClick={() => setHandoutSubTab('files')}
-              className={`px-3 py-1.5 rounded font-semibold transition-smooth ${
-                handoutSubTab === 'files' ? 'btn-primary' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              📚 Uploaded Materials ({handouts.length})
-            </button>
-            <button
-              onClick={() => {
-                setHandoutSubTab('missing_checklist');
-                loadMissingChecklist();
-              }}
-              className={`px-3 py-1.5 rounded font-semibold transition-smooth ${
-                handoutSubTab === 'missing_checklist' ? 'btn-primary' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              📋 Missing Materials Checklist
-            </button>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setIsUploadModalOpen(true)}
-          className="btn-primary text-xs font-bold py-2 px-3.5 flex items-center space-x-1.5"
-        >
-          <span>📤</span>
-          <span>Upload New Handout</span>
-        </button>
-      </div>
-
-      {/* SUBTAB 1: FILES LIST */}
-      {handoutSubTab === 'files' && (
-        <div className="space-y-6">
-          {/* Course Filter Tabs & Search */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <button
-            onClick={() => setSelectedCourseId('ALL')}
-            className={`px-3 py-1.5 rounded-lg font-semibold transition-smooth ${
-              selectedCourseId === 'ALL' ? 'btn-primary' : 'btn-secondary text-slate-300'
-            }`}
-          >
-            All Courses
-          </button>
-          {subjects.map(s => (
-            <button
-              key={s.id}
-              onClick={() => setSelectedCourseId(s.id)}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-smooth ${
-                selectedCourseId === s.id ? 'btn-primary' : 'btn-secondary text-slate-300'
-              }`}
-            >
-              {s.code}: {s.name.split(' ')[0]}
-            </button>
-          ))}
-        </div>
-
-        <input
-          type="text"
-          placeholder="Search by title or topic..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          className="py-1.5 px-3 rounded-lg border text-xs w-full sm:w-64"
-        />
-      </div>
-
-      {/* Handouts Grid / List */}
-      {loading ? (
-        <div className="p-8 text-center text-xs text-slate-400">Loading handouts repository...</div>
-      ) : handouts.length === 0 ? (
-        <div className="lc-card p-12 text-center space-y-3">
-          <div className="text-4xl">📄</div>
-          <h3 className="text-sm font-bold text-slate-200">No Handouts Found</h3>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Upload your official class handouts, lecture notes, or syllabus files (PDF, PPT, DOC, TXT) to organize them by course and unit.
-          </p>
-          <button
-            onClick={() => setIsUploadModalOpen(true)}
-            className="btn-primary text-xs font-bold py-2 px-4"
-          >
-            + Upload First Document
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {handouts.map(h => (
-            <div key={h.id} className="lc-card p-4 space-y-3 flex flex-col justify-between transition-smooth hover:border-indigo-500/50">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded text-white" style={{ backgroundColor: h.course_color || '#4f46e5' }}>
-                    {h.course_code} • Unit {h.unit_number}
-                  </span>
-                  <span className="text-[10px] uppercase font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {h.file_type}
-                  </span>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-bold text-slate-100 line-clamp-1" title={h.title}>
-                    {h.title}
-                  </h4>
-                  {h.topic_name && (
-                    <div className="text-[11px] text-indigo-400 truncate mt-0.5">
-                      Topic: {h.topic_name}
-                    </div>
-                  )}
-                  <div className="text-[10px] text-slate-400 mt-1 flex justify-between">
-                    <span>{formatFileSize(h.file_size)}</span>
-                    <span>Uploaded: {h.upload_date}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-2" style={{ borderColor: 'var(--border-color)' }}>
-                <div className="flex items-center space-x-1.5">
-                  <button
-                    onClick={() => setPreviewHandout(h)}
-                    className="btn-primary text-xs py-1 px-2.5 font-semibold"
-                    title="Preview Document"
-                  >
-                    👁️ Preview
-                  </button>
-                  <a
-                    href={`/api/handouts/${h.id}/download`}
-                    download
-                    className="btn-secondary text-xs py-1 px-2.5 font-semibold text-slate-200"
-                    title="Download Original File"
-                  >
-                    ⬇️ Download
-                  </a>
-                </div>
-
-                <div className="flex items-center space-x-1 text-slate-400">
-                  <button
-                    onClick={() => {
-                      setRenameHandout(h);
-                      setNewTitle(h.title);
-                    }}
-                    className="p-1 hover:text-indigo-400 text-xs"
-                    title="Rename"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => handleDelete(h)}
-                    className="p-1 hover:text-rose-400 text-xs"
-                    title="Delete"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-        </div>
-      )}
-
-      {/* SUBTAB 2: MISSING MATERIALS CHECKLIST */}
-      {handoutSubTab === 'missing_checklist' && (
-        <div className="space-y-4">
-          <div className="p-4 rounded-xl border bg-amber-500/10 border-amber-500/30 text-xs text-amber-200 leading-relaxed shadow-sm">
-            <strong>Materials Status & Checklist:</strong> All course materials discovered in your project (the 4 official B.Tech CSE syllabus outlines, the 25-day study timetable plan, and 3_Stack.pdf) are linked and indexed. For units marked <span className="text-rose-400 font-bold">Missing</span>, please upload your lecture notes or photos using the "Upload Material" button.
+      {/* LEVEL 1: ALL FOUR COURSES */}
+      {viewLevel === 'courses' && (
+        <div className="space-y-5">
+          {/* Header */}
+          <div className="border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+            <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
+              Handouts
+            </h2>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Course syllabus outlines, lecture notes, and learning materials across all 4 university subjects.
+            </p>
           </div>
 
-          {loadingChecklist ? (
-            <div className="p-8 text-center text-xs text-slate-400">Auditing course materials...</div>
-          ) : !missingChecklist ? (
-            <div className="p-8 text-center text-xs text-slate-400">No checklist data loaded.</div>
+          {loading ? (
+            <div className="p-12 text-center text-xs text-slate-400">Loading course handouts...</div>
           ) : (
-            <div className="space-y-5">
-              {missingChecklist.checklist?.map(course => (
-                <div key={course.course_code} className="lc-card p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-color)' }}>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-100">{course.course_name} ({course.course_code})</h3>
-                      <span className="text-[11px] text-slate-400">Total Units: {course.total_units}</span>
-                    </div>
-                    <span className="badge badge-info text-xs">{course.course_code}</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                    {course.units?.map(u => (
-                      <div
-                        key={u.unit_number}
-                        className={`p-3 rounded-lg border flex flex-col justify-between text-xs space-y-2 ${
-                          u.has_handout ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-rose-500/5 border-rose-500/25'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-200">Unit {u.unit_number}</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                            u.has_handout ? 'badge-success badge' : 'badge-error badge'
-                          }`}>
-                            {u.has_handout ? '✓ Available' : '⚠️ Missing'}
-                          </span>
-                        </div>
-
-                        {u.has_handout ? (
-                          <div className="text-[11px] text-emerald-400 truncate">
-                            📄 {u.materials[0]?.title}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-slate-400">
-                            No notes uploaded yet
-                          </div>
-                        )}
-
-                        <div className="pt-1 border-t flex justify-end" style={{ borderColor: 'var(--border-color)' }}>
-                          <button
-                            onClick={() => {
-                              const subj = subjects.find(s => s.code === course.course_code);
-                              if (subj) setUploadCourseId(subj.id);
-                              setUploadUnitNumber(u.unit_number);
-                              setIsUploadModalOpen(true);
-                            }}
-                            className="px-2.5 py-1 rounded text-[11px] font-semibold btn-secondary hover:text-white"
-                          >
-                            {u.has_handout ? '+ Add Another' : '📤 Upload Material'}
-                          </button>
-                        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {hierarchy.map(c => {
+                const icon = getCourseIcon(c.code);
+                return (
+                  <div
+                    key={c.id}
+                    className="p-5 rounded-xl border space-y-4 hover:border-indigo-500/40 transition-smooth shadow-sm flex flex-col justify-between"
+                    style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">{icon}</span>
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded border" style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>
+                          {c.code}
+                        </span>
                       </div>
-                    ))}
+                      <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {c.name}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <span>{c.total_units} Units</span>
+                        <span>•</span>
+                        <span className={c.units_with_materials > 0 ? 'text-emerald-400 font-semibold' : ''}>
+                          {c.units_with_materials > 0 ? `${c.units_with_materials} Units with Handouts` : 'Syllabus Outline Available'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="space-y-1.5 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                      <div className="flex items-center justify-between text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                        <span>Syllabus Completion</span>
+                        <span className="font-bold text-indigo-400 font-mono">
+                          {c.completed_topics} / {c.total_topics} Topics ({c.progress_percent}%)
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border" style={{ borderColor: 'var(--border-color)' }}>
+                        <div
+                          className="h-full rounded-full transition-smooth bg-indigo-500"
+                          style={{ width: `${c.progress_percent}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-between pt-2">
+                      {c.course_materials && c.course_materials.length > 0 ? (
+                        <button
+                          onClick={() => setPreviewHandout(c.course_materials[0])}
+                          className="text-xs text-amber-500 hover:text-amber-400 font-semibold flex items-center space-x-1"
+                        >
+                          <span>👁️</span>
+                          <span>View Official Syllabus Outline</span>
+                        </button>
+                      ) : <span />}
+
+                      <button
+                        onClick={() => {
+                          setSelectedCourse(c);
+                          setViewLevel('units');
+                        }}
+                        className="btn-primary text-xs font-bold py-1.5 px-3.5 flex items-center space-x-1.5"
+                      >
+                        <span>Open Course</span>
+                        <span>→</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* Upload Handout Modal */}
-      {isUploadModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsUploadModalOpen(false)}>
-          <div className="modal-dialog p-5 space-y-4 max-w-lg" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
-              <h3 className="text-base font-bold text-slate-100">Upload Course Handout</h3>
-              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-white text-lg">✕</button>
+      {/* LEVEL 2: UNITS IN SELECTED COURSE */}
+      {viewLevel === 'units' && selectedCourse && (
+        <div className="space-y-5">
+          {/* Breadcrumb & Back */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+            <div className="flex items-center space-x-2 text-xs">
+              <button
+                onClick={() => setViewLevel('courses')}
+                className="font-bold text-indigo-400 hover:underline flex items-center space-x-1"
+              >
+                <span>← All Courses</span>
+              </button>
+              <span style={{ color: 'var(--text-muted)' }}>/</span>
+              <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                {selectedCourse.code}: {selectedCourse.name}
+              </span>
             </div>
 
-            <form onSubmit={handleUploadSubmit} className="space-y-3.5 text-xs">
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Select File (PDF, PPT, DOC, TXT):</label>
-                <input
-                  type="file"
-                  accept=".pdf,.ppt,.pptx,.doc,.docx,.txt"
-                  onChange={e => {
-                    const f = e.target.files[0];
-                    setUploadFile(f);
-                    if (f && !uploadTitle) {
-                      setUploadTitle(f.name.replace(/\.[^/.]+$/, ""));
-                    }
-                  }}
-                  required
-                  className="w-full text-xs"
-                />
-              </div>
+            {selectedCourse.course_materials && selectedCourse.course_materials.length > 0 && (
+              <button
+                onClick={() => setPreviewHandout(selectedCourse.course_materials[0])}
+                className="btn-secondary text-xs font-semibold py-1 px-3 flex items-center space-x-1 text-amber-400"
+              >
+                <span>👁️</span>
+                <span>View Full Syllabus Outline</span>
+              </button>
+            )}
+          </div>
 
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Document Title:</label>
-                <input
-                  type="text"
-                  value={uploadTitle}
-                  onChange={e => setUploadTitle(e.target.value)}
-                  placeholder="e.g. Unit 2 Set Theory & Relations Notes"
-                  required
-                  className="w-full"
-                />
-              </div>
+          {/* Units Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {selectedCourse.units.map(unit => {
+              const hasHandouts = unit.handouts && unit.handouts.length > 0;
+              return (
+                <div
+                  key={unit.id}
+                  className="p-4 rounded-xl border space-y-3 hover:border-indigo-500/30 transition-smooth"
+                  style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 font-mono">
+                        Unit {unit.unit_number}
+                      </span>
+                      <h4 className="text-sm font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>
+                        {unit.title}
+                      </h4>
+                    </div>
+                    {hasHandouts && (
+                      <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
+                        📄 {unit.handouts.length} Handout{unit.handouts.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Associated Course:</label>
-                  <select
-                    value={uploadCourseId}
-                    onChange={e => setUploadCourseId(Number(e.target.value))}
-                    className="w-full"
-                  >
-                    {subjects.map(s => (
-                      <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
-                    ))}
-                  </select>
+                  <div className="space-y-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <div className="flex justify-between">
+                      <span>{unit.total_topics} Topics</span>
+                      <span className="font-mono">{unit.completed_topics} Completed ({unit.progress_percent}%)</span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border" style={{ borderColor: 'var(--border-color)' }}>
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${unit.progress_percent}%` }}></div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
+                    <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                      {hasHandouts ? 'Lecture notes available' : 'Syllabus topics loaded'}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setSelectedUnit(unit);
+                        setViewLevel('topics');
+                      }}
+                      className="btn-primary text-xs font-bold py-1 px-3"
+                    >
+                      View Topics & Materials →
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Unit Number:</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10"
-                    value={uploadUnitNumber}
-                    onChange={e => setUploadUnitNumber(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Topic Name (Optional):</label>
-                <input
-                  type="text"
-                  value={uploadTopicName}
-                  onChange={e => setUploadTopicName(e.target.value)}
-                  placeholder="e.g. Peano postulates, Equivalence relations"
-                  className="w-full"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                <button type="button" onClick={() => setIsUploadModalOpen(false)} className="btn-secondary text-xs">
-                  Cancel
-                </button>
-                <button type="submit" disabled={uploading || !uploadFile} className="btn-primary text-xs font-bold">
-                  {uploading ? 'Uploading...' : 'Save & Upload Handout'}
-                </button>
-              </div>
-            </form>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Preview Modal */}
-      {previewHandout && (
-        <div className="modal-overlay" onClick={() => setPreviewHandout(null)}>
-          <div className="modal-dialog p-5 space-y-3 max-w-4xl w-full h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-color)' }}>
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 font-mono">
-                  {previewHandout.course_code} • Unit {previewHandout.unit_number}
-                </span>
-                <h3 className="text-sm font-bold text-slate-100">{previewHandout.title}</h3>
-              </div>
-              <div className="flex items-center space-x-2">
-                <a
-                  href={`/api/handouts/${previewHandout.id}/download`}
-                  download
-                  className="btn-secondary text-xs py-1 px-3"
-                >
-                  Download File
-                </a>
-                <button onClick={() => setPreviewHandout(null)} className="text-slate-400 hover:text-white text-lg">✕</button>
-              </div>
+      {/* LEVEL 3: TOPICS & HANDOUTS FOR SELECTED UNIT */}
+      {viewLevel === 'topics' && selectedCourse && selectedUnit && (
+        <div className="space-y-5">
+          {/* Breadcrumb Navigation */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border-color)' }}>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <button
+                onClick={() => setViewLevel('courses')}
+                className="text-indigo-400 hover:underline font-semibold"
+              >
+                Handouts
+              </button>
+              <span style={{ color: 'var(--text-muted)' }}>/</span>
+              <button
+                onClick={() => setViewLevel('units')}
+                className="text-indigo-400 hover:underline font-semibold"
+              >
+                {selectedCourse.code}
+              </button>
+              <span style={{ color: 'var(--text-muted)' }}>/</span>
+              <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                Unit {selectedUnit.unit_number}: {selectedUnit.title}
+              </span>
             </div>
 
-            <div className="flex-1 overflow-hidden rounded border bg-slate-950 flex flex-col items-center justify-center" style={{ borderColor: 'var(--border-color)' }}>
+            <button
+              onClick={() => setViewLevel('units')}
+              className="btn-secondary text-xs font-semibold py-1 px-3 self-start sm:self-center"
+            >
+              ← Back to Units
+            </button>
+          </div>
+
+          {/* Unit Materials Banner */}
+          {selectedUnit.handouts && selectedUnit.handouts.length > 0 ? (
+            <div className="p-4 rounded-xl border border-emerald-500/30 space-y-2.5" style={{ backgroundColor: 'rgba(16, 185, 129, 0.08)' }}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  📄 Available Unit Materials ({selectedUnit.handouts.length})
+                </span>
+              </div>
+              <div className="space-y-2">
+                {selectedUnit.handouts.map(h => (
+                  <div key={h.id} className="p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+                    <div>
+                      <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                        {h.original_filename || h.filename}
+                      </div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                        Type: {h.file_type?.toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <button
+                        onClick={() => setPreviewHandout(h)}
+                        className="btn-primary text-xs font-bold py-1 px-3"
+                      >
+                        👁️ Preview Handout
+                      </button>
+                      <a
+                        href={`/api/handouts/${h.id}/download`}
+                        download
+                        className="btn-secondary text-xs font-semibold py-1 px-3"
+                      >
+                        ⬇️ Download
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="p-3.5 rounded-xl border border-amber-500/30 text-xs flex items-center space-x-2.5" style={{ backgroundColor: 'rgba(245, 158, 11, 0.06)' }}>
+              <span className="text-lg">ℹ️</span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                Official syllabus topics loaded. Lecture notes/slides for this unit have not been uploaded yet. You can track topic completion directly below.
+              </span>
+            </div>
+          )}
+
+          {/* Topics Checklist */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: 'var(--text-primary)' }}>
+                Unit Topics ({selectedUnit.topics.length})
+              </h3>
+              <span className="text-xs font-mono font-bold text-indigo-400">
+                {selectedUnit.completed_topics} / {selectedUnit.total_topics} Completed
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {selectedUnit.topics.map((t, idx) => {
+                const isDone = t.is_completed;
+                return (
+                  <div
+                    key={t.id}
+                    className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 transition-smooth ${
+                      isDone ? 'opacity-75' : ''
+                    }`}
+                    style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
+                  >
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <button
+                        onClick={() => handleToggleTopic(t)}
+                        className={`w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs shrink-0 transition-smooth ${
+                          isDone ? 'bg-emerald-500 text-white' : 'border border-slate-600 hover:border-emerald-500'
+                        }`}
+                        title={isDone ? 'Mark as Not Completed' : 'Mark as Completed'}
+                      >
+                        {isDone ? '✓' : ''}
+                      </button>
+                      <div className="min-w-0">
+                        <span className={`text-sm font-bold block ${isDone ? 'line-through' : ''}`} style={{ color: 'var(--text-primary)' }}>
+                          {t.title}
+                        </span>
+                        <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                          Topic #{idx + 1} • Est. {t.estimated_minutes || 60}m
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2 shrink-0">
+                      {isDone ? (
+                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30">
+                          Completed ✓
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleTopic(t)}
+                          className="btn-secondary text-xs font-semibold py-1 px-2.5"
+                        >
+                          Mark Complete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PREVIEW MODAL */}
+      {previewHandout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-4xl max-h-[90vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+            <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
+              <div>
+                <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  {previewHandout.original_filename || previewHandout.filename}
+                </h3>
+                <span className="text-xs text-slate-400">{previewHandout.file_type?.toUpperCase()} Document</span>
+              </div>
+              <button
+                onClick={() => setPreviewHandout(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-slate-800 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 p-4 overflow-auto min-h-[400px] flex items-center justify-center bg-slate-950">
               {previewHandout.file_type === 'pdf' ? (
                 <iframe
                   src={`/api/handouts/${previewHandout.id}/preview`}
-                  className="w-full h-full border-0"
-                  title="PDF Preview"
-                ></iframe>
-              ) : previewHandout.file_type === 'txt' ? (
-                <iframe
-                  src={`/api/handouts/${previewHandout.id}/preview`}
-                  className="w-full h-full border-0 p-4 font-mono text-xs text-slate-200"
-                  title="Text Preview"
-                ></iframe>
+                  className="w-full h-[65vh] border-0 rounded-lg"
+                  title="PDF Document Preview"
+                />
               ) : (
-                <div className="text-center p-8 space-y-3">
-                  <div className="text-4xl">📎</div>
-                  <h4 className="text-sm font-bold text-slate-200">Preview not available for {previewHandout.file_type.toUpperCase()} files in-browser</h4>
-                  <p className="text-xs text-slate-400">Download the file directly to view it in your desktop viewer.</p>
-                  <a
-                    href={`/api/handouts/${previewHandout.id}/download`}
-                    download
-                    className="btn-primary text-xs font-bold py-2 px-4 inline-block"
-                  >
-                    ⬇️ Download {previewHandout.filename}
-                  </a>
-                </div>
+                <img
+                  src={`/api/handouts/${previewHandout.id}/preview`}
+                  alt={previewHandout.original_filename}
+                  className="max-w-full max-h-[65vh] object-contain rounded-lg"
+                />
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Rename Modal */}
-      {renameHandout && (
-        <div className="modal-overlay" onClick={() => setRenameHandout(null)}>
-          <div className="modal-dialog p-5 space-y-3 max-w-sm" onClick={e => e.stopPropagation()}>
-            <h3 className="text-sm font-bold text-slate-100">Rename Handout</h3>
-            <input
-              type="text"
-              value={newTitle}
-              onChange={e => setNewTitle(e.target.value)}
-              className="w-full text-xs"
-            />
-            <div className="flex justify-end space-x-2 pt-2">
-              <button onClick={() => setRenameHandout(null)} className="btn-secondary text-xs">Cancel</button>
-              <button onClick={handleRenameSubmit} className="btn-primary text-xs font-bold">Save</button>
+            <div className="p-3 border-t flex justify-end space-x-2" style={{ borderColor: 'var(--border-color)' }}>
+              <a
+                href={`/api/handouts/${previewHandout.id}/download`}
+                download
+                className="btn-primary text-xs font-bold py-1.5 px-4"
+              >
+                ⬇️ Download File
+              </a>
+              <button
+                onClick={() => setPreviewHandout(null)}
+                className="btn-secondary text-xs font-semibold py-1.5 px-4"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

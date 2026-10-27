@@ -24,7 +24,7 @@ from backend.database import (
     add_redo_task, get_redo_tasks, update_redo_task, complete_redo_task, delete_redo_task,
     get_calendar_events_combined, create_calendar_event, update_calendar_event, delete_calendar_event,
     create_user, get_user_by_username, get_user_by_id, update_user_profile,
-    get_missing_materials_checklist
+    get_missing_materials_checklist, get_handouts_course_hierarchy
 )
 from backend.models import (
     SubjectModel, SubjectUpdateModel, TopicModel, TopicUpdateModel,
@@ -1728,6 +1728,15 @@ def list_handouts_endpoint(subject_id: Optional[int] = None, course_id: Optional
     actual_subj_id = subject_id or course_id
     items = get_handouts(conn, actual_subj_id, unit_id, search)
     return {"handouts": items, "items": items}
+
+@app.get("/api/handouts/hierarchy")
+def get_handouts_hierarchy_endpoint(conn=Depends(get_db)):
+    """
+    Returns verified 3-level academic hierarchy:
+    Course -> Unit -> Topics with attached materials, notes, and completion statuses.
+    """
+    courses = get_handouts_course_hierarchy(conn)
+    return {"courses": courses}
 
 @app.post("/api/handouts")
 @app.post("/api/handouts/upload")

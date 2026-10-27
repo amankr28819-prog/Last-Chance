@@ -175,3 +175,39 @@ def test_shift_completion_with_redo():
         redo_res = client.get("/api/redo")
         redo_tasks = redo_res.json()["redo_tasks"]
         assert any("Flagged from test" in (t.get("reason") or "") for t in redo_tasks)
+
+def test_handouts_hierarchy_flow():
+    # 1. Fetch 3-level hierarchy
+    res = client.get("/api/handouts/hierarchy")
+    assert res.status_code == 200
+    data = res.json()
+    assert "courses" in data
+    assert len(data["courses"]) == 4
+
+    # Check 4 courses
+    codes = [c["code"] for c in data["courses"]]
+    assert "CSN 3003" in codes
+    assert "CSN 3001" in codes
+    assert "CSN 3004" in codes
+    assert "CSN 3002" in codes
+
+    # Data Structures should have Unit 3 with 3_Stack.pdf
+    ds = next(c for c in data["courses"] if c["code"] == "CSN 3001")
+    stack_unit = next((u for u in ds["units"] if u["unit_number"] == 3), None)
+    assert stack_unit is not None
+    assert len(stack_unit["handouts"]) >= 1
+    assert any("3_Stack.pdf" in h["filename"] for h in stack_unit["handouts"])
+
+    # 2. Toggle a topic completion and check persistence
+    first_topic = stack_unit["topics"][0]
+    t_id = first_topic["id"]
+    t_res = client.put(f"/api/topics/{t_id}/status", json={"mastery_level": "COMPLETED"})
+    assert t_res.status_code == 200
+    assert t_res.json()["mastery_level"] == "COMPLETED"
+
+    # Re-fetch hierarchy to ensure completion is reflected
+    res2 = client.get("/api/handouts/hierarchy")
+    ds2 = next(c for c in res2.json()["courses"] if c["code"] == "CSN 3001")
+    stack_unit2 = next(u for u in ds2["units"] if u["unit_number"] == 3)
+    t2 = next(t for t in stack_unit2["topics"] if t["id"] == t_id)
+    assert t2["is_completed"] is True

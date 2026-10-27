@@ -415,17 +415,32 @@ select option {
 /* Sunrise / Mountain Quote Hero Container */
 .quote-hero-card {
   position: relative;
-  background: linear-gradient(135deg, rgba(19, 28, 49, 0.95) 0%, rgba(15, 23, 42, 0.98) 60%, rgba(30, 41, 59, 0.9) 100%);
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: linear-gradient(135deg, #0b1329 0%, #111d38 45%, #18274a 100%);
+  background-size: 200% 200%;
+  border: 1px solid rgba(245, 158, 11, 0.28);
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(251, 191, 36, 0.15);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.35);
+  animation: quoteEntrance 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards, sunriseSubtle 12s ease-in-out infinite alternate;
+  /* CRITICAL: Explicitly ensure zero hover interaction */
+  transition: none !important;
+}
+
+.quote-hero-card:hover {
+  transform: none !important;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.35) !important;
+  filter: none !important;
 }
 
 [data-theme="light"] .quote-hero-card {
-  background: linear-gradient(135deg, #FFFFFF 0%, #FFFDF9 60%, #FEF3C7 100%);
+  background: linear-gradient(135deg, #FFFFFF 0%, #FFFBEB 45%, #FEF3C7 100%);
   border: 1px solid rgba(245, 158, 11, 0.35);
-  box-shadow: 0 10px 25px -5px rgba(245, 158, 11, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6px 20px -3px rgba(245, 158, 11, 0.12);
+}
+
+[data-theme="light"] .quote-hero-card:hover {
+  transform: none !important;
+  box-shadow: 0 6px 20px -3px rgba(245, 158, 11, 0.12) !important;
 }
 
 .quote-hero-card::before {
@@ -436,6 +451,78 @@ select option {
   right: 0;
   height: 3px;
   background: linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b);
+}
+
+@keyframes quoteEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sunriseSubtle {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quote-hero-card,
+  .quote-hero-card * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Comprehensive Light Theme Contrast Protections */
+[data-theme="light"] .text-slate-400,
+[data-theme="light"] .text-slate-500 {
+  color: #57534E !important; /* Stone 600 - High Contrast WCAG AA */
+}
+[data-theme="light"] .text-slate-300,
+[data-theme="light"] .text-slate-200,
+[data-theme="light"] .text-slate-100 {
+  color: #1C1917 !important; /* Stone 900 - High Contrast */
+}
+[data-theme="light"] .text-slate-50 {
+  color: #0C0A09 !important;
+}
+[data-theme="light"] .bg-slate-900,
+[data-theme="light"] .bg-slate-800 {
+  background-color: #F5F2EB !important;
+  border-color: #E7E5E4 !important;
+}
+[data-theme="light"] .border-slate-800,
+[data-theme="light"] .border-slate-700 {
+  border-color: #E7E5E4 !important;
+}
+
+/* Official Rectangular Brand Logo */
+.brand-logo-img {
+  width: 140px;
+  height: auto;
+  max-height: 48px;
+  object-fit: contain;
+  display: block;
+}
+
+/* Today's Mission Next Shift Highlight */
+.mission-card-next {
+  border: 1.5px solid #f59e0b;
+  box-shadow: 0 4px 16px -2px rgba(245, 158, 11, 0.2);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(19, 28, 49, 0.95) 100%);
+}
+[data-theme="light"] .mission-card-next {
+  border: 1.5px solid #d97706;
+  box-shadow: 0 4px 16px -2px rgba(217, 119, 6, 0.18);
+  background: linear-gradient(135deg, #FFFBEB 0%, #FFFFFF 100%);
 }
 
 /* Redo Badge / Pulse */

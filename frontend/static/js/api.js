@@ -198,7 +198,7 @@ const API = {
   // Wasted Time
   deleteWastedLog: (id) => API.delete(`/api/wasted-time/log/${id}`),
 
-  // Handouts & Syllabus
+  getHandoutsHierarchy: () => API.get('/api/handouts/hierarchy'),
   getHandouts: (courseId = null, unitNumber = null, search = null) => {
     let url = '/api/handouts';
     const params = [];

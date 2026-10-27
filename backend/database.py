@@ -375,6 +375,7 @@ def init_db(db_path: str = DB_PATH):
     add_col_if_missing("topics", "difficulty_level", "TEXT DEFAULT 'MODERATE'")
     add_col_if_missing("topics", "needs_revision", "INTEGER DEFAULT 0")
     add_col_if_missing("topics", "last_studied_at", "TEXT")
+    add_col_if_missing("topics", "notes", "TEXT")
 
     seed_initial_data_if_empty(conn)
     seed_dsa_questions_if_empty(conn)
@@ -2324,6 +2325,82 @@ def delete_handout(conn: sqlite3.Connection, handout_id: int) -> Optional[str]:
     cursor.execute("DELETE FROM handouts WHERE id = ?", (handout_id,))
     conn.commit()
     return file_path
+
+def get_handouts_course_hierarchy(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    """
+    Returns clean 3-level hierarchy for all 4 courses:
+    Course -> Units -> Topics (with attached handouts, notes, and completion status)
+    """
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, code, color, total_lectures FROM subjects ORDER BY id ASC")
+    courses = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute("""
+        SELECT h.id, h.filename, h.original_filename, h.file_type, h.file_size, h.file_path,
+               h.upload_date, h.notes, h.subject_id, h.unit_id, h.topic_id
+        FROM handouts h
+        ORDER BY h.id ASC
+    """)
+    all_handouts = [dict(r) for r in cursor.fetchall()]
+
+    result = []
+    for c in courses:
+        c_id = c["id"]
+        # Course-level materials (e.g. syllabus sheets, master timetable)
+        c_materials = [h for h in all_handouts if h.get("subject_id") == c_id and not h.get("unit_id")]
+        
+        # Get units for this course
+        cursor.execute("SELECT id, unit_number, title FROM units WHERE subject_id = ? ORDER BY unit_number ASC", (c_id,))
+        units = [dict(u) for u in cursor.fetchall()]
+
+        units_with_materials_count = 0
+        total_topics_count = 0
+        completed_topics_count = 0
+
+        for u in units:
+            u_id = u["id"]
+            u_materials = [h for h in all_handouts if h.get("unit_id") == u_id]
+            u["handouts"] = u_materials
+            if u_materials:
+                units_with_materials_count += 1
+
+            # Get topics for this unit
+            cursor.execute("""
+                SELECT id, title, order_index, mastery_level, difficulty_level,
+                       estimated_minutes, is_mandatory
+                FROM topics
+                WHERE unit_id = ?
+                ORDER BY order_index ASC, id ASC
+            """, (u_id,))
+            topics = [dict(t) for t in cursor.fetchall()]
+
+            u_completed = 0
+            for t in topics:
+                t_id = t["id"]
+                is_comp = t.get("mastery_level") in ("CONFIDENT", "MASTERED", "COMPLETED")
+                t["is_completed"] = is_comp
+                if is_comp:
+                    u_completed += 1
+                t["handouts"] = [h for h in all_handouts if h.get("topic_id") == t_id]
+
+            u["topics"] = topics
+            u["total_topics"] = len(topics)
+            u["completed_topics"] = u_completed
+            u["progress_percent"] = int((u_completed / len(topics)) * 100) if topics else 0
+
+            total_topics_count += len(topics)
+            completed_topics_count += u_completed
+
+        c["course_materials"] = c_materials
+        c["units"] = units
+        c["total_units"] = len(units)
+        c["units_with_materials"] = units_with_materials_count
+        c["total_topics"] = total_topics_count
+        c["completed_topics"] = completed_topics_count
+        c["progress_percent"] = int((completed_topics_count / total_topics_count) * 100) if total_topics_count else 0
+        result.append(c)
+
+    return result
 
 # =====================================================================
 # --- LIVE UNIT & SYLLABUS PROGRESS TRACKER ---
